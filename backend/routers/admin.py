@@ -1,4 +1,5 @@
 """管理路由 - 选民注册、IPFS 上传、财务监控"""
+import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
 from pydantic import BaseModel, field_validator
@@ -17,6 +18,14 @@ from services.ipfs import pin_file_to_ipfs
 from config import ADMIN_WALLET_ADDRESS, SEPOLIA_RPC
 
 router = APIRouter(prefix="/api/admin", tags=["管理"])
+
+# 配置独立的业务日志
+admin_logger = logging.getLogger("admin_logger")
+admin_logger.setLevel(logging.INFO)
+if not admin_logger.handlers:
+    fh = logging.FileHandler("app_business.log", encoding="utf-8")
+    fh.setFormatter(logging.Formatter("[%(levelname)s] %(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    admin_logger.addHandler(fh)
 
 
 class RegisterVoterRequest(BaseModel):
@@ -212,16 +221,9 @@ async def upload_to_ipfs(file: UploadFile = File(...)):
     contents = await file.read()
     try:
         cid = pin_file_to_ipfs(contents, file.filename or "upload")
+        admin_logger.info(f"[Web3Service] 管理员向区块链发起交易，成功将文件 {file.filename or 'upload'} 上传至 IPFS，CID: {cid}")
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return {"success": True, "cid": cid, "filename": file.filename}
-
-
-# ==================== 财务监控 API ====================
-
-@router.get("/wallet-balance")
-async def get_wallet_balance():
+        admin_logger.error(f"[Web3Service] 管理员向 Web3 发起操作，IPFS 上传失败: {str(e)}")
     """获取管理员钱包的 ETH 余额"""
     if not ADMIN_WALLET_ADDRESS:
         raise HTTPException(status_code=500, detail="管理员钱包地址未配置")
@@ -331,7 +333,17 @@ async def log_transaction(req: LogTransactionRequest, db: Session = Depends(get_
         # 检查是否已存在
         existing = db.query(TransactionLog).filter(TransactionLog.tx_hash == req.tx_hash).first()
         if existing:
-            raise HTTPException(status_code=409, detail="交易已记录")
+            existing.status = req.status
+            if req.gas_used is not None:
+                existing.gas_used = req.gas_used
+            if req.gas_price is not None:
+                existing.gas_price = req.gas_price
+            if req.total_cost is not None:
+                existing.total_cost = req.total_cost
+            if req.memo is not None:
+                existing.memo = req.memo
+            db.commit()
+            return {"success": True, "message": "交易日志已更新"}
         
         log = TransactionLog(
             tx_hash=req.tx_hash,
@@ -347,6 +359,8 @@ async def log_transaction(req: LogTransactionRequest, db: Session = Depends(get_
         db.commit()
         
         return {"success": True, "message": "交易日志已记录"}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

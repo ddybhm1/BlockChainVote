@@ -7,6 +7,8 @@ contract VotingSystem {
     address public admin;
     bool public votingStarted;
     bool public votingEnded;
+    uint256 public votingStartTime;
+    uint256 public votingEndTime;
     uint256 public candidateCount;
     uint256 public totalAuthorizedVoters;
     uint256 public totalVotesCast;
@@ -32,6 +34,8 @@ contract VotingSystem {
 
     modifier duringVoting() {
         require(votingStarted && !votingEnded, "Voting not active");
+        require(block.timestamp >= votingStartTime, "Voting not started yet");
+        require(block.timestamp <= votingEndTime, "Voting ended");
         _;
     }
 
@@ -42,6 +46,8 @@ contract VotingSystem {
 
     constructor(address _admin) {
         admin = _admin;
+        votingStartTime = 0;
+        votingEndTime = 0;
     }
 
     // ==================== 管理功能 ====================
@@ -102,10 +108,14 @@ contract VotingSystem {
         }
     }
 
-    /// @notice 开始投票
-    function startVoting() external onlyAdmin beforeVoting {
+
+    /// @notice 开始投票（设置起止时间，单位为秒级时间戳）
+    function startVoting(uint256 _start, uint256 _end) external onlyAdmin beforeVoting {
         require(candidateCount > 0, "No candidates");
+        require(_end > _start, "End must be after start");
         votingStarted = true;
+        votingStartTime = _start;
+        votingEndTime = _end;
         emit VotingStarted();
     }
 

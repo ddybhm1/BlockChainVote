@@ -195,6 +195,14 @@
             <!-- 投票控制 -->
             <div class="section control-section">
               <h3>投票控制</h3>
+              <div class="time-inputs" style="margin-bottom:12px;display:flex;gap:16px;align-items:center;">
+                <label>开始时间：
+                  <input type="datetime-local" v-model="startTime" :disabled="status.started || submitting" style="margin-left:4px;" />
+                </label>
+                <label>截止时间：
+                  <input type="datetime-local" v-model="endTime" :disabled="status.started || submitting" style="margin-left:4px;" />
+                </label>
+              </div>
               <div class="btn-group">
                 <button
                   class="btn btn-primary"
@@ -372,6 +380,8 @@
 </template>
 
 <script setup>
+const startTime = ref("");
+const endTime = ref("");
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ethers } from "ethers";
 import { useWalletStore } from "../stores/wallet.js";
@@ -490,13 +500,14 @@ const myElections = computed(() =>
 
 function formatTime(ts) {
   if (!ts) return "";
-  // 后端返回的是 ISO 字符串 (2023-01-01T12:00:00)
   try {
-    const date = new Date(ts);
-    if (isNaN(date.getTime())) {
-      // 如果是时间戳
-      return new Date(Number(ts) * 1000).toLocaleString("zh-CN");
+    const numTs = Number(ts);
+    if (!isNaN(numTs)) {
+      // 若是10位级的时间戳（秒），转为毫秒
+      const ms = numTs < 10000000000 ? numTs * 1000 : numTs;
+      return new Date(ms).toLocaleString("zh-CN");
     }
+    const date = new Date(ts);
     return date.toLocaleString("zh-CN");
   } catch (e) {
     return ts;
@@ -682,7 +693,16 @@ async function handleStartVoting() {
   message.value = "";
   try {
     const contract = await getWriteContract(selectedAddr.value);
-    const tx = await contract.startVoting();
+    // 转为秒级时间戳
+    const start = Math.floor(new Date(startTime.value).getTime() / 1000);
+    const end = Math.floor(new Date(endTime.value).getTime() / 1000);
+    if (!start || !end || end <= start) {
+      message.value = "请正确设置开始和截止时间";
+      messageOk.value = false;
+      submitting.value = false;
+      return;
+    }
+    const tx = await contract.startVoting(start, end);
     message.value = "交易已发送，等待链上确认...";
     messageOk.value = true;
 
