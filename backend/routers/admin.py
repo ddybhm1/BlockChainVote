@@ -1,31 +1,46 @@
-"""管理路由 - 选民注册、IPFS 上传、财务监控"""
+import io
+import json
 import logging
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
-from pydantic import BaseModel, field_validator
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
+import openpyxl
 import bcrypt
 import re
 from datetime import datetime
-import io
-import openpyxl
-from web3 import Web3
+from pathlib import Path
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
+from pydantic import BaseModel, field_validator
+from sqlalchemy import desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from web3 import Web3
+from web3.middleware import geth_poa_middleware
+
+from config import ADMIN_PRIVATE_KEY, ADMIN_WALLET_ADDRESS, SEPOLIA_RPC, SEPOLIA_RPC_URL
 from database import get_db
-from models import Voter, ClaimedTicket, ElectionVoter, TransactionLog, SecurityLog
+from models import Voter, ClaimedTicket, ElectionVoter, TransactionLog, SecurityLog, Election
+from services.blockchain import get_web3, get_contract
 from services.ipfs import pin_file_to_ipfs
-from config import ADMIN_WALLET_ADDRESS, SEPOLIA_RPC
 
 router = APIRouter(prefix="/api/admin", tags=["管理"])
+ARTIFACT_PATH = Path(__file__).resolve().parents[2] / "artifacts" / "contracts" / "VotingSystem.sol" / "VotingSystem.json"
 
-# 配置独立的业务日志
 admin_logger = logging.getLogger("admin_logger")
 admin_logger.setLevel(logging.INFO)
 if not admin_logger.handlers:
     fh = logging.FileHandler("app_business.log", encoding="utf-8")
     fh.setFormatter(logging.Formatter("[%(levelname)s] %(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
     admin_logger.addHandler(fh)
+
+
+class DeployElectionRequest(BaseModel):
+    start_time: int
+    end_time: int
+
+
+class DeployElectionResponse(BaseModel):
+    success: bool
+    contract_address: str
+    message: str
 
 
 class RegisterVoterRequest(BaseModel):
@@ -37,7 +52,7 @@ class RegisterVoterRequest(BaseModel):
     @classmethod
     def validate_election_address(cls, v: str) -> str:
         if not re.match(r"^0x[0-9a-fA-F]{40}$", v):
-            raise ValueError("无效的投票项目合约地址格式")
+            raise ValueError("参数不完整或格式错误")
         return v.lower()
 
 
@@ -46,21 +61,27 @@ class RegisterVoterResponse(BaseModel):
     message: str
 
 
+class SetVotingTimeRequest(BaseModel):
+    election_address: str
+    start_time: int
+    end_time: int
+
+
 class LogTransactionRequest(BaseModel):
     tx_hash: str
     election_address: str
-    operation_type: str  # authorize_voter, add_candidate, start_voting, end_voting
+    operation_type: str
     gas_used: Optional[int] = None
     gas_price: Optional[float] = None
     total_cost: Optional[str] = None
-    status: str = "pending"  # success, pending, failed
+    status: str = "pending"
     memo: Optional[str] = None
 
     @field_validator("election_address")
     @classmethod
     def validate_address(cls, v: str) -> str:
         if not re.match(r"^0x[0-9a-fA-F]{40}$", v):
-            raise ValueError("无效地址格式")
+            raise ValueError("钱包地址格式错误")
         return v.lower()
 
 
@@ -69,16 +90,85 @@ class LogSecurityRequest(BaseModel):
     student_id: Optional[str] = None
     election_address: Optional[str] = None
     details: str
-    severity: str = "warning"  # info, warning, critical
+    severity: str = "warning"
+
+
+@router.post("/deploy-election", response_model=DeployElectionResponse)
+async def deploy_election(req: DeployElectionRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        w3 = get_web3()
+        w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        admin_account = w3.eth.account.from_key(ADMIN_PRIVATE_KEY)
+
+        with ARTIFACT_PATH.open("r", encoding="utf-8") as f:
+            artifact = json.load(f)
+        abi = artifact["abi"]
+        bytecode = artifact["bytecode"]
+
+        contract = w3.eth.contract(abi=abi, bytecode=bytecode)
+        tx = contract.constructor(admin_account.address).build_transaction({
+            "from": admin_account.address,
+            "nonce": w3.eth.get_transaction_count(admin_account.address),
+            "gas": 4000000,
+            "gasPrice": w3.eth.gas_price,
+        })
+        signed = admin_account.sign_transaction(tx)
+        tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
+        contract_address = receipt.contractAddress
+
+        db.add(Election(contract_address=contract_address, start_time=req.start_time, end_time=req.end_time))
+        await db.commit()
+        return DeployElectionResponse(success=True, contract_address=contract_address, message="合约部署成功")
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"部署失败: {str(e)}")
+
+
+@router.get("/election-time")
+async def get_election_time(election_address: str, db: AsyncSession = Depends(get_db)):
+    election = await db.scalar(select(Election).where(Election.contract_address == election_address))
+    if not election:
+        raise HTTPException(status_code=404, detail="未找到对应选举")
+    return {"start_time": election.start_time, "end_time": election.end_time}
+
+
+@router.post("/set-voting-time")
+async def set_voting_time(req: SetVotingTimeRequest, db: AsyncSession = Depends(get_db)):
+    if not req.election_address or req.start_time >= req.end_time:
+        raise HTTPException(status_code=400, detail="请求参数错误")
+    try:
+        w3 = get_web3()
+        contract = get_contract(w3, req.election_address)
+        admin_account = w3.eth.account.from_key(ADMIN_PRIVATE_KEY)
+        nonce = w3.eth.get_transaction_count(admin_account.address)
+        tx = contract.functions.startVoting(req.start_time, req.end_time).build_transaction({
+            "from": admin_account.address,
+            "nonce": nonce,
+            "gas": 200000,
+            "gasPrice": w3.eth.gas_price,
+        })
+        signed_tx = admin_account.sign_transaction(tx)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+
+        election = await db.scalar(select(Election).where(Election.contract_address == req.election_address))
+        if election:
+            election.start_time = req.start_time
+            election.end_time = req.end_time
+        else:
+            db.add(Election(contract_address=req.election_address, start_time=req.start_time, end_time=req.end_time))
+        await db.commit()
+        return {"success": True, "message": "投票时间已设置", "tx_hash": tx_hash.hex()}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"部署失败: {str(e)}")
 
 
 @router.post("/register-voter", response_model=RegisterVoterResponse)
-async def register_voter(req: RegisterVoterRequest, db: Session = Depends(get_db)):
-    """注册项目选民到 MySQL（管理员操作，用于录入某个投票项目的合法选民名单）"""
+async def register_voter(req: RegisterVoterRequest, db: AsyncSession = Depends(get_db)):
     student_id = req.student_id.strip()
 
-    # 1) 维护全局身份凭据（同一学号只保留一套密码）
-    voter = db.query(Voter).filter(Voter.student_id == student_id).first()
+    voter = await db.scalar(select(Voter).where(Voter.student_id == student_id))
     if not voter:
         hashed = bcrypt.hashpw(req.password.encode("utf-8"), bcrypt.gensalt())
         voter = Voter(
@@ -91,16 +181,17 @@ async def register_voter(req: RegisterVoterRequest, db: Session = Depends(get_db
         if not bcrypt.checkpw(req.password.encode("utf-8"), voter.password_hash.encode("utf-8")):
             raise HTTPException(status_code=409, detail="该学号已存在且密码不一致")
 
-    # 2) 维护项目级选民名单
-    existing_mapping = db.query(ElectionVoter).filter(
-        ElectionVoter.student_id == student_id,
-        ElectionVoter.election_address == req.election_address,
-    ).first()
+    existing_mapping = await db.scalar(
+        select(ElectionVoter).where(
+            ElectionVoter.student_id == student_id,
+            ElectionVoter.election_address == req.election_address,
+        )
+    )
     if existing_mapping:
         raise HTTPException(status_code=409, detail="该学号已注册到当前投票项目")
 
     db.add(ElectionVoter(student_id=student_id, election_address=req.election_address))
-    db.commit()
+    await db.commit()
 
     return RegisterVoterResponse(success=True, message="选民注册成功（已加入当前项目白名单）")
 
@@ -109,16 +200,15 @@ async def register_voter(req: RegisterVoterRequest, db: Session = Depends(get_db
 async def upload_voters_excel(
     election_address: str = Form(...),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    """通过 Excel 批量导入全校学生并注册到项目中"""
     if not re.match(r"^0x[0-9a-fA-F]{40}$", election_address):
         raise HTTPException(status_code=400, detail="无效的投票项目合约地址格式")
     election_address = election_address.lower()
 
-    if not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="请上传 .xlsx 格式的 Excel 文件")
-    
+
     contents = await file.read()
     try:
         workbook = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
@@ -148,12 +238,11 @@ async def upload_voters_excel(
     for i, row in enumerate(rows[1:], start=2):
         if not row[col_student_id] or not row[col_password]:
             continue
-        
+
         student_id = str(row[col_student_id]).strip()
         password = str(row[col_password]).strip()
 
-        # 1) 维持全局选民
-        voter = db.query(Voter).filter(Voter.student_id == student_id).first()
+        voter = await db.scalar(select(Voter).where(Voter.student_id == student_id))
         if not voter:
             hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
             voter = Voter(
@@ -162,59 +251,54 @@ async def upload_voters_excel(
                 has_claimed=False,
             )
             db.add(voter)
-            db.flush() # flush to avoid conflicting in session, although logically safe
-        else:
-            if not bcrypt.checkpw(password.encode("utf-8"), voter.password_hash.encode("utf-8")):
-                errors.append(f"第 {i} 行: 学号 {student_id} 已存在但密码不匹配")
-                continue
+            await db.flush()
+        elif not bcrypt.checkpw(password.encode("utf-8"), voter.password_hash.encode("utf-8")):
+            errors.append(f"第 {i} 行: 学号 {student_id} 已存在但密码不匹配")
+            continue
 
-        # 2) 维护项目级名单
-        existing_mapping = db.query(ElectionVoter).filter(
-            ElectionVoter.student_id == student_id,
-            ElectionVoter.election_address == election_address,
-        ).first()
+        existing_mapping = await db.scalar(
+            select(ElectionVoter).where(
+                ElectionVoter.student_id == student_id,
+                ElectionVoter.election_address == election_address,
+            )
+        )
         if existing_mapping:
             duplicate_count += 1
             continue
-        
+
         db.add(ElectionVoter(student_id=student_id, election_address=election_address))
         success_count += 1
 
     try:
-        db.commit()
+        await db.commit()
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(status_code=500, detail=f"数据库保存失败: {str(e)}")
 
     return {
-        "success": True, 
+        "success": True,
         "message": f"导入完成。成功新增 {success_count} 人，已存在/跳过 {duplicate_count} 人。错误: {len(errors)} 条",
-        "errors": errors
+        "errors": errors,
     }
+
 
 @router.get("/voters-count")
 async def get_voters_count(
     election_address: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    """获取已注册和已领票的选民数量（支持按投票项目查询）"""
     if election_address:
         election_address = election_address.lower()
-        total = db.query(ElectionVoter).filter(
-            ElectionVoter.election_address == election_address
-        ).count()
-        claimed = db.query(ClaimedTicket).filter(
-            ClaimedTicket.election_address == election_address
-        ).count()
+        total = await db.scalar(select(func.count()).select_from(ElectionVoter).where(ElectionVoter.election_address == election_address))
+        claimed = await db.scalar(select(func.count()).select_from(ClaimedTicket).where(ClaimedTicket.election_address == election_address))
     else:
-        total = db.query(Voter).count()
-        claimed = db.query(ClaimedTicket).count()
+        total = await db.scalar(select(func.count()).select_from(Voter))
+        claimed = await db.scalar(select(func.count()).select_from(ClaimedTicket))
     return {"total_registered": total, "total_claimed": claimed}
 
 
 @router.post("/upload-ipfs")
 async def upload_to_ipfs(file: UploadFile = File(...)):
-    """上传文件到 IPFS（Pinata），返回 CID"""
     if file.size and file.size > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="文件大小不能超过 10MB")
 
@@ -224,20 +308,21 @@ async def upload_to_ipfs(file: UploadFile = File(...)):
         admin_logger.info(f"[Web3Service] 管理员向区块链发起交易，成功将文件 {file.filename or 'upload'} 上传至 IPFS，CID: {cid}")
     except RuntimeError as e:
         admin_logger.error(f"[Web3Service] 管理员向 Web3 发起操作，IPFS 上传失败: {str(e)}")
-    """获取管理员钱包的 ETH 余额"""
+        raise HTTPException(status_code=500, detail=f"IPFS 上传失败: {str(e)}")
+
     if not ADMIN_WALLET_ADDRESS:
         raise HTTPException(status_code=500, detail="管理员钱包地址未配置")
-    
+
     try:
         w3 = Web3(Web3.HTTPProvider(SEPOLIA_RPC))
         balance_wei = w3.eth.get_balance(ADMIN_WALLET_ADDRESS)
         balance_eth = w3.from_wei(balance_wei, "ether")
-        
         return {
+            "cid": cid,
             "address": ADMIN_WALLET_ADDRESS,
             "balance_eth": float(balance_eth),
             "balance_wei": str(balance_wei),
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": datetime.utcnow().isoformat(),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取余额失败: {str(e)}")
@@ -249,21 +334,23 @@ async def get_transaction_logs(
     status: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    """获取交易日志（Gas费用记录）"""
-    query = db.query(TransactionLog)
-    
+    query = select(TransactionLog)
+    count_query = select(func.count()).select_from(TransactionLog)
+
     if election_address:
-        query = query.filter(TransactionLog.election_address == election_address.lower())
-    
+        lowered = election_address.lower()
+        query = query.where(TransactionLog.election_address == lowered)
+        count_query = count_query.where(TransactionLog.election_address == lowered)
+
     if status:
-        query = query.filter(TransactionLog.status == status)
-    
-    # 按创建时间倒序
-    logs = query.order_by(desc(TransactionLog.created_at)).offset(offset).limit(limit).all()
-    total = query.count()
-    
+        query = query.where(TransactionLog.status == status)
+        count_query = count_query.where(TransactionLog.status == status)
+
+    logs = (await db.scalars(query.order_by(desc(TransactionLog.created_at)).offset(offset).limit(limit))).all()
+    total = await db.scalar(count_query)
+
     return {
         "total": total,
         "logs": [
@@ -277,10 +364,10 @@ async def get_transaction_logs(
                 "total_cost": log.total_cost,
                 "status": log.status,
                 "created_at": log.created_at.isoformat() if log.created_at else None,
-                "memo": log.memo
+                "memo": log.memo,
             }
             for log in logs
-        ]
+        ],
     }
 
 
@@ -291,24 +378,27 @@ async def get_security_logs(
     election_address: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    """获取安全日志（攻击拦截、重复领票等）"""
-    query = db.query(SecurityLog)
-    
+    query = select(SecurityLog)
+    count_query = select(func.count()).select_from(SecurityLog)
+
     if event_type:
-        query = query.filter(SecurityLog.event_type == event_type)
-    
+        query = query.where(SecurityLog.event_type == event_type)
+        count_query = count_query.where(SecurityLog.event_type == event_type)
+
     if severity:
-        query = query.filter(SecurityLog.severity == severity)
-    
+        query = query.where(SecurityLog.severity == severity)
+        count_query = count_query.where(SecurityLog.severity == severity)
+
     if election_address:
-        query = query.filter(SecurityLog.election_address == election_address.lower())
-    
-    # 按创建时间倒序
-    logs = query.order_by(desc(SecurityLog.created_at)).offset(offset).limit(limit).all()
-    total = query.count()
-    
+        lowered = election_address.lower()
+        query = query.where(SecurityLog.election_address == lowered)
+        count_query = count_query.where(SecurityLog.election_address == lowered)
+
+    logs = (await db.scalars(query.order_by(desc(SecurityLog.created_at)).offset(offset).limit(limit))).all()
+    total = await db.scalar(count_query)
+
     return {
         "total": total,
         "logs": [
@@ -319,19 +409,17 @@ async def get_security_logs(
                 "election_address": log.election_address,
                 "details": log.details,
                 "severity": log.severity,
-                "created_at": log.created_at.isoformat() if log.created_at else None
+                "created_at": log.created_at.isoformat() if log.created_at else None,
             }
             for log in logs
-        ]
+        ],
     }
 
 
 @router.post("/log-transaction")
-async def log_transaction(req: LogTransactionRequest, db: Session = Depends(get_db)):
-    """记录交易日志"""
+async def log_transaction(req: LogTransactionRequest, db: AsyncSession = Depends(get_db)):
     try:
-        # 检查是否已存在
-        existing = db.query(TransactionLog).filter(TransactionLog.tx_hash == req.tx_hash).first()
+        existing = await db.scalar(select(TransactionLog).where(TransactionLog.tx_hash == req.tx_hash))
         if existing:
             existing.status = req.status
             if req.gas_used is not None:
@@ -342,9 +430,9 @@ async def log_transaction(req: LogTransactionRequest, db: Session = Depends(get_
                 existing.total_cost = req.total_cost
             if req.memo is not None:
                 existing.memo = req.memo
-            db.commit()
+            await db.commit()
             return {"success": True, "message": "交易日志已更新"}
-        
+
         log = TransactionLog(
             tx_hash=req.tx_hash,
             election_address=req.election_address.lower(),
@@ -353,34 +441,31 @@ async def log_transaction(req: LogTransactionRequest, db: Session = Depends(get_
             gas_price=req.gas_price,
             total_cost=req.total_cost,
             status=req.status,
-            memo=req.memo
+            memo=req.memo,
         )
         db.add(log)
-        db.commit()
-        
+        await db.commit()
         return {"success": True, "message": "交易日志已记录"}
     except HTTPException:
         raise
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/log-security")
-async def log_security(req: LogSecurityRequest, db: Session = Depends(get_db)):
-    """记录安全事件"""
+async def log_security(req: LogSecurityRequest, db: AsyncSession = Depends(get_db)):
     try:
         log = SecurityLog(
             event_type=req.event_type,
             student_id=req.student_id,
             election_address=req.election_address.lower() if req.election_address else None,
             details=req.details,
-            severity=req.severity
+            severity=req.severity,
         )
         db.add(log)
-        db.commit()
-        
+        await db.commit()
         return {"success": True, "message": "安全日志已记录"}
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

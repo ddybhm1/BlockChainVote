@@ -171,6 +171,8 @@ contract VotingSystem {
         external view
         returns (bool started, bool ended, uint256 candidates, uint256 voters, uint256 voted)
     {
-        return (votingStarted, votingEnded, candidateCount, totalAuthorizedVoters, totalVotesCast);
+        // ended 字段自动判断：已手动结束 或 已到截止时间
+        bool realEnded = votingEnded || (votingStarted && block.timestamp > votingEndTime);
+        return (votingStarted, realEnded, candidateCount, totalAuthorizedVoters, totalVotesCast);
     }
 }

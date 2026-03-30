@@ -1,3 +1,14 @@
+/**
+ * 设置投票时间（管理员操作）
+ */
+export async function setVotingTime(electionAddress, startTime, endTime) {
+  const res = await api.post("/admin/set-voting-time", {
+    election_address: electionAddress,
+    start_time: startTime,
+    end_time: endTime,
+  });
+  return res.data;
+}
 import axios from "axios";
 
 const api = axios.create({

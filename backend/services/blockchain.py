@@ -4,23 +4,19 @@ import os
 from web3 import Web3
 from config import SEPOLIA_RPC_URL, ADMIN_PRIVATE_KEY
 
-# 合约 ABI（仅包含后端需要调用的方法）
-CONTRACT_ABI = [
-    {
-        "inputs": [{"internalType": "address", "name": "_voter", "type": "address"}],
-        "name": "authorizeVoter",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function",
-    },
-    {
-        "inputs": [{"internalType": "address", "name": "", "type": "address"}],
-        "name": "isAuthorized",
-        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
-        "stateMutability": "view",
-        "type": "function",
-    },
-]
+
+# 自动从 artifacts 目录加载 VotingSystem ABI
+def load_contract_abi():
+    abi_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "..", "artifacts", "contracts", "VotingSystem.sol", "VotingSystem.json"
+    )
+    abi_path = os.path.abspath(abi_path)
+    with open(abi_path, "r", encoding="utf-8") as f:
+        artifact = json.load(f)
+    return artifact["abi"]
+
+CONTRACT_ABI = load_contract_abi()
 
 
 def get_web3():

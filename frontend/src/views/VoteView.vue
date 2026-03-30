@@ -108,7 +108,7 @@ const canVote = computed(() => {
 
 const statusText = computed(() => {
   if (!voting.votingStarted) return "未开始";
-  if (voting.votingEnded) return "投票已经结束";
+  if (voting.votingEnded) return "已截止";
   return "进行中";
 });
 

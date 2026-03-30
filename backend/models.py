@@ -1,7 +1,16 @@
-from sqlalchemy import Column, Integer, String, Boolean, UniqueConstraint, DateTime, Float, Text
-from datetime import datetime
+from sqlalchemy import Column, Integer, String, Boolean, UniqueConstraint, DateTime, Float, Text, BigInteger
 from database import Base
+from datetime import datetime
 
+# ========== 投票项目表 ========== #
+class Election(Base):
+    """投票项目表 - 存储合约地址及投票时间窗口"""
+    __tablename__ = "elections"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    contract_address = Column(String(42), unique=True, nullable=False, index=True)
+    start_time = Column(BigInteger, nullable=False)
+    end_time = Column(BigInteger, nullable=False)
+    # 可扩展：项目名称、描述等
 
 class Voter(Base):
     """选民表 - 仅存储身份校验信息，绝不存储钱包地址"""

@@ -197,26 +197,19 @@
               <h3>投票控制</h3>
               <div class="time-inputs" style="margin-bottom:12px;display:flex;gap:16px;align-items:center;">
                 <label>开始时间：
-                  <input type="datetime-local" v-model="startTime" :disabled="status.started || submitting" style="margin-left:4px;" />
+                  <input type="datetime-local" v-model="startTime" :disabled="submitting" style="margin-left:4px;" />
                 </label>
                 <label>截止时间：
-                  <input type="datetime-local" v-model="endTime" :disabled="status.started || submitting" style="margin-left:4px;" />
+                  <input type="datetime-local" v-model="endTime" :disabled="submitting" style="margin-left:4px;" />
                 </label>
               </div>
               <div class="btn-group">
                 <button
                   class="btn btn-primary"
-                  :disabled="status.started || submitting || !candidates.length"
-                  @click="handleStartVoting"
+                  :disabled="submitting || !candidates.length || !startTime || !endTime"
+                  @click="handleSaveVotingTime"
                 >
-                  {{ submitting ? '处理中...' : '开始投票' }}
-                </button>
-                <button
-                  class="btn btn-danger"
-                  :disabled="!status.started || status.ended || submitting"
-                  @click="handleEndVoting"
-                >
-                  {{ submitting ? '处理中...' : '结束投票' }}
+                  {{ submitting ? '保存中...' : '保存/部署' }}
                 </button>
               </div>
             </div>
@@ -395,7 +388,8 @@ import {
   getTransactionLogs,
   getSecurityLogs,
   logTransaction,
-  logSecurity
+  logSecurity,
+  setVotingTime
 } from "../services/api.js";
 
 const wallet = useWalletStore();
@@ -525,6 +519,28 @@ async function getWriteContract(addr) {
   const signer = await wallet.getSigner();
   if (!signer) throw new Error("请先连接钱包");
   return new ethers.Contract(addr, ELECTION_ABI, signer);
+}
+
+// ==================== 投票时间保存 ====================
+async function handleSaveVotingTime() {
+  if (!selectedAddr.value || !startTime.value || !endTime.value) return;
+  submitting.value = true;
+  message.value = '';
+  messageOk.value = false;
+  try {
+    // 时间格式转为时间戳（秒）
+    const startTs = Math.floor(new Date(startTime.value).getTime() / 1000);
+    const endTs = Math.floor(new Date(endTime.value).getTime() / 1000);
+    // 调用后端API，设置投票时间
+    const res = await setVotingTime(selectedAddr.value, startTs, endTs);
+    message.value = '投票时间已保存/部署，区块链将自动控制投票窗口。TxHash: ' + (res.tx_hash || '');
+    messageOk.value = true;
+  } catch (e) {
+    message.value = '保存失败：' + (e.response?.data?.detail || e.message);
+    messageOk.value = false;
+  } finally {
+    submitting.value = false;
+  }
 }
 
 // ==================== 创建项目 ====================

@@ -22,13 +22,18 @@
     <p v-if="manifesto" class="manifesto">{{ manifesto }}</p>
 
     <div class="candidate-actions">
-      <button
-        class="btn btn-primary vote-btn"
-        :disabled="!canVote"
-        @click="$emit('vote', candidateId)"
-      >
-        {{ buttonText }}
-      </button>
+      <template v-if="!votingEnded">
+        <button
+          class="btn btn-primary vote-btn"
+          :disabled="!canVote"
+          @click="$emit('vote', candidateId)"
+        >
+          {{ buttonText }}
+        </button>
+      </template>
+      <template v-else>
+        <div class="vote-ended-text">投票已经结束</div>
+      </template>
       <a
         v-if="cid"
         :href="`${ipfsGateway}${cid}`"
@@ -146,6 +151,14 @@ const buttonText = computed(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.vote-ended-text {
+  flex: 1;
+  color: #888;
+  font-size: 16px;
+  text-align: center;
+  padding: 10px 0;
 }
 
 .vote-btn {

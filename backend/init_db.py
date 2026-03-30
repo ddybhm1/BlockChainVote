@@ -1,30 +1,38 @@
-"""初始化数据库表结构，并插入测试选民数据"""
+"""初始化投票数据库和测试数据"""
+import asyncio
+
 import bcrypt
+from sqlalchemy import select
+
 from database import engine, SessionLocal, Base
-from models import Voter, ClaimedTicket
+from models import Voter
 
 
-def init():
-    # 创建所有表
-    Base.metadata.create_all(bind=engine)
+async def init():
+    # 初始化数据库表
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     print("数据库表已创建")
 
-    # 插入测试数据
+    # 初始化测试用户数据
     db = SessionLocal()
     test_voters = [
         ("2024001", "pass123"),
         ("2024002", "pass456"),
         ("2024003", "pass789"),
     ]
-    for sid, pwd in test_voters:
-        if not db.query(Voter).filter(Voter.student_id == sid).first():
-            hashed = bcrypt.hashpw(pwd.encode("utf-8"), bcrypt.gensalt())
-            db.add(Voter(student_id=sid, password_hash=hashed.decode("utf-8")))
-            print(f"  已添加测试选民: {sid}")
-    db.commit()
-    db.close()
-    print("初始化完成")
+    try:
+        for sid, pwd in test_voters:
+            existing = await db.scalar(select(Voter).where(Voter.student_id == sid))
+            if not existing:
+                hashed = bcrypt.hashpw(pwd.encode("utf-8"), bcrypt.gensalt())
+                db.add(Voter(student_id=sid, password_hash=hashed.decode("utf-8")))
+                print(f"  添加测试用户: {sid}")
+        await db.commit()
+    finally:
+        await db.close()
+    print("测试用户初始化完成")
 
 
 if __name__ == "__main__":
-    init()
+    asyncio.run(init())

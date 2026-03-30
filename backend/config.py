@@ -3,9 +3,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://root:password@localhost:3306/blockchain_vote")
+DATABASE_URL = os.getenv("DATABASE_URL", "mysql+aiomysql://root:password@localhost:3306/blockchain_vote")
 SEPOLIA_RPC_URL = os.getenv("SEPOLIA_RPC_URL", "")
-SEPOLIA_RPC = SEPOLIA_RPC_URL or "https://rpc.sepolia.org"  # 备用RPC
+SEPOLIA_RPC = SEPOLIA_RPC_URL or "https://rpc.sepolia.org"  # å¤ç¨RPC
 ADMIN_PRIVATE_KEY = os.getenv("ADMIN_PRIVATE_KEY", "")
 ADMIN_WALLET_ADDRESS = os.getenv("ADMIN_WALLET_ADDRESS", "")  # 管理员钱包地址
 FACTORY_ADDRESS = os.getenv("FACTORY_ADDRESS", "")

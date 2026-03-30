@@ -4,11 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import FRONTEND_ORIGIN
 from routers import auth, admin
 from database import Base, engine
-import models  # noqa: F401  # 确保模型被导入以注册到 metadata
+import models  # noqa: F401  # 导入 models 以创建元数据
 
-app = FastAPI(title="BlockChainVote API", version="1.0.0", description="区块链电子投票系统后端")
+app = FastAPI(title="BlockChainVote API", version="1.0.0", description="区块链投票系统后端 API")
 
-# CORS - 仅允许前端源
+# CORS - 允许跨域资源共享
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_ORIGIN],
@@ -23,7 +23,8 @@ app.include_router(admin.router)
 
 @app.on_event("startup")
 async def startup_create_tables():
-    Base.metadata.create_all(bind=engine)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
 @app.get("/api/health")
