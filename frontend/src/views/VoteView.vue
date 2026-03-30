@@ -5,6 +5,10 @@
     </div>
 
     <template v-if="selectedElection">
+      <div class="card" style="margin-bottom:16px;">
+        <div><strong>投票开始时间：</strong>{{ voting.startTime ? new Date(voting.startTime * 1000).toLocaleString() : '未部署' }}</div>
+        <div><strong>投票截止时间：</strong>{{ voting.endTime ? new Date(voting.endTime * 1000).toLocaleString() : '未部署' }}</div>
+      </div>
       <div class="card status-bar">
         <div class="status-item">
           <span class="status-label">投票状态</span>
@@ -72,11 +76,11 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { ref, computed, watch } from "vue";
 import { useWalletStore } from "../stores/wallet.js";
 import { useVotingStore } from "../stores/voting.js";
-import CandidateCard from "../components/CandidateCard.vue";
 import ElectionSelector from "../components/ElectionSelector.vue";
+import CandidateCard from "../components/CandidateCard.vue";
 
 const wallet = useWalletStore();
 const voting = useVotingStore();
@@ -204,3 +208,5 @@ async function refreshData() {
   color: var(--text-secondary);
 }
 </style>
+
+

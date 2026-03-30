@@ -12,6 +12,14 @@
     </div>
 
     <template v-if="selectedElection">
+      <div class="card time-card" style="margin-bottom:16px;">
+        <div><strong>投票开始时间：</strong>{{ voting.startTime ? new Date(voting.startTime * 1000).toLocaleString() : '未部署' }}</div>
+        <div><strong>投票截止时间：</strong>{{ voting.endTime ? new Date(voting.endTime * 1000).toLocaleString() : '未部署' }}</div>
+        <div class="time-status">
+          <strong>投票状态：</strong>
+          <span :class="['status-badge', statusClass]">{{ statusText }}</span>
+        </div>
+      </div>
       <div v-if="voting.loading" class="card" style="text-align:center;padding:40px">
         正在从区块链读取最新数据...
       </div>
@@ -115,7 +123,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { ref, computed, watch } from "vue";
 import { useVotingStore } from "../stores/voting.js";
 import ElectionSelector from "../components/ElectionSelector.vue";
 
@@ -139,6 +147,18 @@ const maxVotes = computed(() => {
 const participationRate = computed(() => {
   if (voting.totalVoters === 0) return "0.0";
   return ((voting.totalVotes / voting.totalVoters) * 100).toFixed(1);
+});
+
+const statusText = computed(() => {
+  if (!voting.votingStarted) return "未开始";
+  if (voting.votingEnded) return "已截止";
+  return "进行中";
+});
+
+const statusClass = computed(() => {
+  if (!voting.votingStarted) return "badge-warning";
+  if (voting.votingEnded) return "badge-danger";
+  return "badge-success";
 });
 
 function barWidth(votes) {
@@ -165,6 +185,16 @@ async function refresh() {
   color: var(--text-secondary);
   font-size: 14px;
   margin-top: 8px;
+}
+.time-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.time-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .stats-row {
   display: grid;
@@ -291,6 +321,18 @@ async function refresh() {
   padding: 2px 8px;
   border-radius: 4px;
 }
+.badge-success {
+  background: #ecfdf5;
+  color: #059669;
+}
+.badge-warning {
+  background: #fffbeb;
+  color: #d97706;
+}
+.badge-danger {
+  background: #fef2f2;
+  color: #dc2626;
+}
 .results-card-header {
   display: flex;
   justify-content: space-between;
@@ -304,3 +346,4 @@ async function refresh() {
   }
 }
 </style>
+

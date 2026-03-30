@@ -18,6 +18,8 @@ export const useVotingStore = defineStore("voting", () => {
   // 多项目相关
   const currentElection = ref(""); // 当前选中的投票项目合约地址
   const elections = ref([]);       // 所有投票项目列表
+  const startTime = ref(0);        // 当前投票项目的开始时间（秒）
+  const endTime = ref(0);          // 当前投票项目的截止时间（秒）
 
   function getProvider() {
     return new ethers.JsonRpcProvider(
@@ -94,7 +96,7 @@ export const useVotingStore = defineStore("voting", () => {
   /**
    * 选择投票项目
    */
-  function selectElection(addr) {
+  async function selectElection(addr) {
     currentElection.value = addr;
     // 重置当前状态
     candidates.value = [];
@@ -104,6 +106,17 @@ export const useVotingStore = defineStore("voting", () => {
     totalVotes.value = 0;
     isAuthorized.value = false;
     hasVoted.value = false;
+    startTime.value = 0;
+    endTime.value = 0;
+    if (addr) {
+      try {
+        const contract = getElectionReadContract(addr);
+        startTime.value = Number(await contract.votingStartTime());
+        endTime.value = Number(await contract.votingEndTime());
+      } catch (e) {
+        // 忽略错误
+      }
+    }
   }
 
   /**
@@ -114,6 +127,13 @@ export const useVotingStore = defineStore("voting", () => {
       error.value = "请先选择投票项目";
       return;
     }
+
+    // 每次加载候选人时也同步刷新投票时间
+    try {
+      const contract = getElectionReadContract();
+      startTime.value = Number(await contract.votingStartTime());
+      endTime.value = Number(await contract.votingEndTime());
+    } catch (e) {}
 
     loading.value = true;
     error.value = "";
@@ -217,6 +237,8 @@ export const useVotingStore = defineStore("voting", () => {
     error,
     currentElection,
     elections,
+    startTime,
+    endTime,
     loadElections,
     selectElection,
     loadCandidates,

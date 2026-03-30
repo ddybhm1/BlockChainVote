@@ -15,6 +15,14 @@
       </div>
 
       <template v-else>
+        <div class="card time-card" style="margin-bottom:16px;">
+          <div><strong>投票开始时间：</strong>{{ voting.startTime ? new Date(voting.startTime * 1000).toLocaleString() : '未部署' }}</div>
+          <div><strong>投票截止时间：</strong>{{ voting.endTime ? new Date(voting.endTime * 1000).toLocaleString() : '未部署' }}</div>
+          <div class="time-status">
+            <strong>投票状态：</strong>
+            <span :class="['status-badge', statusClass]">{{ statusText }}</span>
+          </div>
+        </div>
         <div v-if="result.message" :class="['alert', result.success ? 'alert-success' : 'alert-error']">
           {{ result.message }}
           <div v-if="result.txHash" class="tx-link">
@@ -58,16 +66,39 @@
 </template>
 
 <script setup>
-import { reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { useWalletStore } from "../stores/wallet.js";
 import { claimTicket } from "../services/api.js";
 import ElectionSelector from "../components/ElectionSelector.vue";
+import { useVotingStore } from "../stores/voting.js";
 
 const wallet = useWalletStore();
+const voting = useVotingStore();
 const loading = ref(false);
 const form = reactive({ studentId: "", password: "" });
 const result = reactive({ success: false, message: "", txHash: "" });
 const selectedElection = ref("");
+
+watch(selectedElection, async (addr) => {
+  if (!addr) {
+    await voting.selectElection("");
+    return;
+  }
+  await voting.selectElection(addr);
+  await voting.loadCandidates();
+});
+
+const statusText = computed(() => {
+  if (!voting.votingStarted) return "未开始";
+  if (voting.votingEnded) return "已截止";
+  return "进行中";
+});
+
+const statusClass = computed(() => {
+  if (!voting.votingStarted) return "badge-warning";
+  if (voting.votingEnded) return "badge-danger";
+  return "badge-success";
+});
 
 async function handleClaim() {
   if (!wallet.address || !selectedElection.value) return;
@@ -98,6 +129,16 @@ async function handleClaim() {
   font-size: 14px;
   margin-bottom: 20px;
 }
+.time-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.time-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .auth-form {
   display: flex;
   flex-direction: column;
@@ -119,6 +160,24 @@ async function handleClaim() {
 .tx-link a {
   color: inherit;
   text-decoration: underline;
+}
+.status-badge {
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.badge-success {
+  background: #ecfdf5;
+  color: #059669;
+}
+.badge-warning {
+  background: #fffbeb;
+  color: #d97706;
+}
+.badge-danger {
+  background: #fef2f2;
+  color: #dc2626;
 }
 .security-notes {
   list-style: none;

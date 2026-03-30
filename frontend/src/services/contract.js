@@ -19,6 +19,8 @@ export const ELECTION_ABI = [
   "function candidateCount() view returns (uint256)",
   "function votingStarted() view returns (bool)",
   "function votingEnded() view returns (bool)",
+  "function votingStartTime() view returns (uint256)",
+  "function votingEndTime() view returns (uint256)",
   "function totalAuthorizedVoters() view returns (uint256)",
   "function totalVotesCast() view returns (uint256)",
   "function isAuthorized(address) view returns (bool)",
@@ -34,7 +36,7 @@ export const ELECTION_ABI = [
   "function addCandidatesBatch(string[] _names, string[] _cids)",
   "function authorizeVoter(address _voter)",
   "function authorizeVotersBatch(address[] _voters)",
-  "function startVoting()",
+  "function startVoting(uint256 _start, uint256 _end)",
   "function endVoting()",
   // 投票方法（需要签名）
   "function vote(uint256 _candidateId)",

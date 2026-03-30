@@ -54,7 +54,7 @@
             <input
               class="input-field"
               v-model="newTitle"
-              placeholder="请输入投票项目名称（如：2025年学生会主席选举）"
+              placeholder="请输入投票项目名称"
               style="flex:1"
             />
             <button
@@ -126,11 +126,10 @@
               <template v-else>
                 <div class="batch-list">
                   <div v-for="(item, idx) in batchItems" :key="idx" class="batch-row">
-                    <span class="batch-num">{{ idx + 1 }}</span>
                     <input
                       class="input-field"
                       v-model="item.name"
-                      :placeholder="'候选人名称 #' + (idx + 1)"
+                      placeholder="候选人名称"
                     />
                     <div class="cid-input-group">
                       <input
@@ -194,22 +193,27 @@
 
             <!-- 投票控制 -->
             <div class="section control-section">
-              <h3>投票控制</h3>
+              <div class="control-header">
+                <h3>投票控制</h3>
+              </div>
               <div class="time-inputs" style="margin-bottom:12px;display:flex;gap:16px;align-items:center;">
                 <label>开始时间：
-                  <input type="datetime-local" v-model="startTime" :disabled="submitting" style="margin-left:4px;" />
+                  <input type="datetime-local" v-model="startTime" :disabled="submitting || deployed" style="margin-left:4px;" />
                 </label>
                 <label>截止时间：
-                  <input type="datetime-local" v-model="endTime" :disabled="submitting" style="margin-left:4px;" />
+                  <input type="datetime-local" v-model="endTime" :disabled="submitting || deployed" style="margin-left:4px;" />
                 </label>
+              </div>
+              <div v-if="deployed" class="alert alert-info" style="margin-top:0;">
+                当前项目已部署投票窗口时间，不能更改。
               </div>
               <div class="btn-group">
                 <button
                   class="btn btn-primary"
-                  :disabled="submitting || !candidates.length || !startTime || !endTime"
+                  :disabled="deployed || submitting || !candidates.length || !startTime || !endTime"
                   @click="handleSaveVotingTime"
                 >
-                  {{ submitting ? '保存中...' : '保存/部署' }}
+                  {{ submitting ? '部署中...' : (deployed ? '部署成功' : '部署') }}
                 </button>
               </div>
             </div>
@@ -234,17 +238,15 @@
 
               <div class="batch-list">
                 <div class="batch-header">
-                  <span class="batch-num">#</span>
                   <span class="header-label">学号</span>
                   <span class="header-label">密码</span>
                   <span style="width:32px"></span>
                 </div>
                 <div v-for="(v, idx) in voterItems" :key="idx" class="batch-row">
-                  <span class="batch-num">{{ idx + 1 }}</span>
                   <input
                     class="input-field"
                     v-model="v.studentId"
-                    :placeholder="'学号 #' + (idx + 1)"
+                    placeholder="学号"
                   />
                   <input
                     class="input-field"
@@ -279,7 +281,7 @@
 
             <!-- 财务与安全监控 -->
             <div class="section">
-              <h3>� 系统监控日志看板</h3>
+              <h3>系统监控日志看板</h3>
               
               <!-- 交易日志 -->
               <div class="subsection">
@@ -373,8 +375,6 @@
 </template>
 
 <script setup>
-const startTime = ref("");
-const endTime = ref("");
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ethers } from "ethers";
 import { useWalletStore } from "../stores/wallet.js";
@@ -391,6 +391,12 @@ import {
   logSecurity,
   setVotingTime
 } from "../services/api.js";
+
+const startTime = ref("");
+const endTime = ref("");
+const deployed = ref(false);
+const deployedStartTs = ref(0);
+const deployedEndTs = ref(0);
 
 const wallet = useWalletStore();
 const voting = useVotingStore();
@@ -508,6 +514,26 @@ function formatTime(ts) {
   }
 }
 
+function toDatetimeLocal(seconds) {
+  if (!seconds) return "";
+  const date = new Date(Number(seconds) * 1000);
+  const pad = (v) => String(v).padStart(2, "0");
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function resetDeploymentState() {
+  deployed.value = false;
+  deployedStartTs.value = 0;
+  deployedEndTs.value = 0;
+  startTime.value = "";
+  endTime.value = "";
+}
+
 function getReadContract(addr) {
   const provider = new ethers.JsonRpcProvider(
     import.meta.env.VITE_SEPOLIA_RPC || "https://rpc.sepolia.org"
@@ -523,18 +549,28 @@ async function getWriteContract(addr) {
 
 // ==================== 投票时间保存 ====================
 async function handleSaveVotingTime() {
-  if (!selectedAddr.value || !startTime.value || !endTime.value) return;
+  if (!selectedAddr.value || !startTime.value || !endTime.value || deployed.value) return;
   submitting.value = true;
   message.value = '';
   messageOk.value = false;
   try {
-    // 时间格式转为时间戳（秒）
     const startTs = Math.floor(new Date(startTime.value).getTime() / 1000);
     const endTs = Math.floor(new Date(endTime.value).getTime() / 1000);
-    // 调用后端API，设置投票时间
+    if (!startTs || !endTs || endTs <= startTs) {
+      message.value = "请正确设置开始和截止时间";
+      messageOk.value = false;
+      return;
+    }
+
     const res = await setVotingTime(selectedAddr.value, startTs, endTs);
-    message.value = '投票时间已保存/部署，区块链将自动控制投票窗口。TxHash: ' + (res.tx_hash || '');
+    deployed.value = true;
+    deployedStartTs.value = startTs;
+    deployedEndTs.value = endTs;
+    startTime.value = toDatetimeLocal(startTs);
+    endTime.value = toDatetimeLocal(endTs);
+    message.value = '部署成功，区块链将自动控制投票窗口。TxHash: ' + (res.tx_hash || '');
     messageOk.value = true;
+    await voting.selectElection(selectedAddr.value);
   } catch (e) {
     message.value = '保存失败：' + (e.response?.data?.detail || e.message);
     messageOk.value = false;
@@ -601,6 +637,7 @@ async function handleCreate() {
 
 // ==================== 选择项目 ====================
 async function handleSelect(addr) {
+  resetDeploymentState();
   selectedAddr.value = addr;
   const el = voting.elections.find(e => e.address === addr);
   selectedTitle.value = el ? el.title : "";
@@ -632,13 +669,28 @@ async function loadData() {
   if (!selectedAddr.value) return;
   try {
     const contract = getReadContract(selectedAddr.value);
-    const [st, all] = await Promise.all([
+    const [st, all, startTsRaw, endTsRaw] = await Promise.all([
       contract.getVotingStatus(),
       contract.getAllCandidates(),
+      contract.votingStartTime(),
+      contract.votingEndTime(),
     ]);
     status.started = st[0];
     status.ended = st[1];
-    status.candidates = Number(st[2]);
+
+    const chainStartTs = Number(startTsRaw);
+    const chainEndTs = Number(endTsRaw);
+    if (chainStartTs > 0 && chainEndTs > 0) {
+      deployed.value = true;
+      deployedStartTs.value = chainStartTs;
+      deployedEndTs.value = chainEndTs;
+      startTime.value = toDatetimeLocal(chainStartTs);
+      endTime.value = toDatetimeLocal(chainEndTs);
+    } else {
+      deployed.value = false;
+      deployedStartTs.value = 0;
+      deployedEndTs.value = 0;
+    }
 
     const [names, cids, votes] = all;
     candidates.value = names.map((n, i) => ({
@@ -646,6 +698,7 @@ async function loadData() {
       cid: cids[i],
       votes: Number(votes[i]),
     }));
+    status.candidates = candidates.value.length;
   } catch (e) {
     console.error("加载数据失败:", e);
   }
@@ -1173,6 +1226,13 @@ watch(() => wallet.address, async () => {
   white-space: nowrap;
 }
 .control-section { padding-top: 8px; }
+.control-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .btn-group { display: flex; gap: 12px; }
 .btn-danger {
   padding: 10px 20px;
