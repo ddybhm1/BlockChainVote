@@ -115,7 +115,7 @@ async def deploy_election(req: DeployElectionRequest, db: AsyncSession = Depends
         signed = admin_account.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
-        contract_address = receipt.contractAddress
+        contract_address = receipt.contractAddress.lower()
 
         db.add(Election(contract_address=contract_address, start_time=req.start_time, end_time=req.end_time))
         await db.commit()
@@ -127,7 +127,7 @@ async def deploy_election(req: DeployElectionRequest, db: AsyncSession = Depends
 
 @router.get("/election-time")
 async def get_election_time(election_address: str, db: AsyncSession = Depends(get_db)):
-    election = await db.scalar(select(Election).where(Election.contract_address == election_address))
+    election = await db.scalar(select(Election).where(func.lower(Election.contract_address) == election_address.lower()))
     if not election:
         raise HTTPException(status_code=404, detail="未找到对应选举")
     return {"start_time": election.start_time, "end_time": election.end_time}
@@ -138,8 +138,9 @@ async def set_voting_time(req: SetVotingTimeRequest, db: AsyncSession = Depends(
     if not req.election_address or req.start_time >= req.end_time:
         raise HTTPException(status_code=400, detail="请求参数错误")
     try:
+        normalized_address = req.election_address.lower()
         w3 = get_web3()
-        contract = get_contract(w3, req.election_address)
+        contract = get_contract(w3, normalized_address)
         admin_account = w3.eth.account.from_key(ADMIN_PRIVATE_KEY)
         nonce = w3.eth.get_transaction_count(admin_account.address)
         tx = contract.functions.startVoting(req.start_time, req.end_time).build_transaction({
@@ -151,12 +152,12 @@ async def set_voting_time(req: SetVotingTimeRequest, db: AsyncSession = Depends(
         signed_tx = admin_account.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
 
-        election = await db.scalar(select(Election).where(Election.contract_address == req.election_address))
+        election = await db.scalar(select(Election).where(func.lower(Election.contract_address) == normalized_address))
         if election:
             election.start_time = req.start_time
             election.end_time = req.end_time
         else:
-            db.add(Election(contract_address=req.election_address, start_time=req.start_time, end_time=req.end_time))
+            db.add(Election(contract_address=normalized_address, start_time=req.start_time, end_time=req.end_time))
         await db.commit()
         return {"success": True, "message": "投票时间已设置", "tx_hash": tx_hash.hex()}
     except Exception as e:

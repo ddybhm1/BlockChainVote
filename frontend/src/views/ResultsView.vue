@@ -1,349 +1,169 @@
 <template>
   <div class="results-view">
-    <div class="card">
-      <div class="results-header">
-        <h2>📊 实时投票结果</h2>
-        <button class="btn btn-primary" @click="refresh" :disabled="voting.loading || !selectedElection" style="padding:6px 14px;font-size:13px">
-          🔄 刷新
-        </button>
+    <section class="card intro-card">
+      <div class="intro-head">
+        <div>
+          <p class="intro-kicker">Public Hall</p>
+          <h2>WebSocket 实时动态数据大屏</h2>
+        </div>
+        <a
+          v-if="selectedElection"
+          class="btn btn-secondary ghost-link"
+          :href="`https://sepolia.etherscan.io/address/${selectedElection}`"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Etherscan 验证
+        </a>
       </div>
-      <p class="desc">数据直接从以太坊区块链读取，任何人均可通过 Etherscan 独立验证。</p>
+
+      <p class="desc">
+        大屏通过 FastAPI WebSocket 持续接收链上投票事件，前端使用 ECharts 实时渲染走势曲线和排行榜，适合放在答辩展示或公众大厅。
+      </p>
+
       <ElectionSelector v-model="selectedElection" />
-    </div>
+    </section>
 
-    <template v-if="selectedElection">
-      <div class="card time-card" style="margin-bottom:16px;">
-        <div><strong>投票开始时间：</strong>{{ voting.startTime ? new Date(voting.startTime * 1000).toLocaleString() : '未部署' }}</div>
-        <div><strong>投票截止时间：</strong>{{ voting.endTime ? new Date(voting.endTime * 1000).toLocaleString() : '未部署' }}</div>
-        <div class="time-status">
-          <strong>投票状态：</strong>
-          <span :class="['status-badge', statusClass]">{{ statusText }}</span>
-        </div>
-      </div>
-      <div v-if="voting.loading" class="card" style="text-align:center;padding:40px">
-        正在从区块链读取最新数据...
-      </div>
+    <RealTimeVoteBoard
+      v-if="selectedElection"
+      :election-address="selectedElection"
+      :election-title="selectedTitle"
+    />
 
-      <template v-else>
-        <!-- 统计概览 -->
-        <div class="stats-row">
-          <div class="stat card">
-            <span class="stat-value">{{ voting.candidates.length }}</span>
-            <span class="stat-label">候选人</span>
-          </div>
-          <div class="stat card">
-            <span class="stat-value">{{ voting.totalVotes }}</span>
-            <span class="stat-label">已投票数</span>
-          </div>
-          <div class="stat card">
-            <span class="stat-value">{{ voting.totalVoters }}</span>
-            <span class="stat-label">授权选民</span>
-          </div>
-          <div class="stat card">
-            <span class="stat-value">{{ participationRate }}%</span>
-            <span class="stat-label">投票率</span>
-          </div>
-        </div>
-
-        <!-- 票数排行 -->
-        <div class="card">
-          <div class="results-card-header">
-            <h3>排行榜</h3>
-            <span class="badge badge-info">实时链内核验</span>
-          </div>
-          <div v-if="sortedCandidates.length === 0" style="text-align:center;padding:20px;color:var(--text-secondary)">
-            暂无候选人数据
-          </div>
-          <div v-for="(c, i) in sortedCandidates" :key="i" class="rank-item">
-            <div class="rank-pos">{{ i + 1 }}</div>
-            <div class="rank-info">
-              <div class="rank-name-row">
-                <strong>{{ c.name }}</strong>
-                <a 
-                  v-if="c.cid" 
-                  :href="`https://ipfs.io/ipfs/${c.cid}`" 
-                  target="_blank" 
-                  class="cid-verify-link"
-                  title="在 IPFS 上验证候选人原始数据"
-                >
-                  验证 CID
-                </a>
-              </div>
-              <span class="rank-votes">{{ c.votes }} 票</span>
-            </div>
-            <div class="rank-bar-wrap">
-              <div
-                class="rank-bar"
-                :style="{ width: barWidth(c.votes) + '%' }"
-              ></div>
-            </div>
-            <div class="rank-pct">{{ percentage(c.votes) }}%</div>
-          </div>
-        </div>
-
-        <!-- 链上验证/审计 -->
-        <div class="card auditor-card">
-          <div class="auditor-header">
-            <h3>🏢 公众/审计员 (Public Observer) —— Web3 监督角色</h3>
-            <span class="auditor-badge">只读 & 数据全透明</span>
-          </div>
-          <div class="auditor-content">
-            <p>基于区块链的选举允许任何人作为“隐形监督者”验证公平性：</p>
-            <ul class="audit-list">
-              <li><strong>免许可验证</strong>：直接调用智能合约的 <code>voteCount</code> 核对票数。</li>
-              <li><strong>审计每一笔交易</strong>：核查链上 <code>Voted</code> 事件日志，核实每一张票。</li>
-              <li><strong>候选人原始数据核查</strong>：提取 <code>candidateCIDs</code> 映射，去官方网关验证。</li>
-            </ul>
-            <div class="audit-actions">
-              <a
-                :href="`https://sepolia.etherscan.io/address/${selectedElection}`"
-                target="_blank"
-                class="btn btn-primary btn-sm"
-              >
-                在 Etherscan 上验证交易记录
-              </a>
-              <a
-                :href="`https://sepolia.etherscan.io/address/${selectedElection}#readContract`"
-                target="_blank"
-                class="btn btn-secondary btn-sm"
-              >
-                直接读取合约数据
-              </a>
-            </div>
-          </div>
-        </div>
-      </template>
-    </template>
-
-    <div v-else class="card" style="text-align:center;padding:40px">
-      <p style="font-size:18px;margin-bottom:8px">请先选择投票项目</p>
-      <p style="color:var(--text-secondary)">在上方下拉框中选择要查看结果的项目</p>
-    </div>
+    <section v-else class="card empty-card">
+      <p class="empty-title">先选择一个投票项目</p>
+      <p class="empty-desc">选中后会自动建立实时连接，并持续接收最新的链上投票动态。</p>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch } from "vue";
-import { useVotingStore } from "../stores/voting.js";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import ElectionSelector from "../components/ElectionSelector.vue";
+import RealTimeVoteBoard from "../components/RealTimeVoteBoard.vue";
+import { useVotingStore } from "../stores/voting.js";
 
 const voting = useVotingStore();
+const route = useRoute();
+const router = useRouter();
 const selectedElection = ref("");
 
-watch(selectedElection, async (addr) => {
-  if (!addr) return;
-  voting.selectElection(addr);
-  await voting.loadCandidates();
+watch(selectedElection, async (address) => {
+  if (!address) {
+    const nextQuery = { ...route.query };
+    delete nextQuery.election;
+    router.replace({ query: nextQuery });
+    return;
+  }
+
+  if (route.query.election !== address) {
+    router.replace({ query: { ...route.query, election: address } });
+  }
+  await voting.selectElection(address);
 });
 
-const sortedCandidates = computed(() => {
-  return [...voting.candidates].sort((a, b) => b.votes - a.votes);
+const selectedTitle = computed(() => {
+  return (
+    voting.elections.find(
+      (election) => election.address.toLowerCase() === selectedElection.value.toLowerCase()
+    )?.title || ""
+  );
 });
 
-const maxVotes = computed(() => {
-  return Math.max(1, ...voting.candidates.map((c) => c.votes));
+onMounted(() => {
+  if (typeof route.query.election === "string" && route.query.election) {
+    selectedElection.value = route.query.election;
+  }
 });
 
-const participationRate = computed(() => {
-  if (voting.totalVoters === 0) return "0.0";
-  return ((voting.totalVotes / voting.totalVoters) * 100).toFixed(1);
-});
-
-const statusText = computed(() => {
-  if (!voting.votingStarted) return "未开始";
-  if (voting.votingEnded) return "已截止";
-  return "进行中";
-});
-
-const statusClass = computed(() => {
-  if (!voting.votingStarted) return "badge-warning";
-  if (voting.votingEnded) return "badge-danger";
-  return "badge-success";
-});
-
-function barWidth(votes) {
-  return (votes / maxVotes.value) * 100;
-}
-
-function percentage(votes) {
-  if (voting.totalVotes === 0) return "0.0";
-  return ((votes / voting.totalVotes) * 100).toFixed(1);
-}
-
-async function refresh() {
-  await voting.loadCandidates();
-}
+watch(
+  () => voting.elections,
+  (items) => {
+    if (!selectedElection.value) return;
+    const matched = items.find(
+      (item) => item.address.toLowerCase() === selectedElection.value.toLowerCase()
+    );
+    if (matched && matched.address !== selectedElection.value) {
+      selectedElection.value = matched.address;
+    }
+  },
+  { deep: true }
+);
 </script>
 
 <style scoped>
-.results-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.desc {
-  color: var(--text-secondary);
-  font-size: 14px;
-  margin-top: 8px;
-}
-.time-card {
+.results-view {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 18px;
 }
-.time-status {
+
+.intro-card {
+  padding: 24px 26px;
+}
+
+.intro-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.stats-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
-}
-.stat {
-  text-align: center;
-  padding: 20px;
-}
-.stat-value {
-  display: block;
-  font-size: 28px;
-  font-weight: 800;
-  color: var(--primary);
-}
-.stat-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-.rank-item {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-.rank-item:last-child {
-  border-bottom: none;
-}
-.rank-pos {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 14px;
-  flex-shrink: 0;
-}
-.rank-info {
-  min-width: 120px;
-  display: flex;
-  flex-direction: column;
-}
-.rank-votes {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-.rank-bar-wrap {
-  flex: 1;
-  height: 10px;
-  background: #f1f5f9;
-  border-radius: 5px;
-  overflow: hidden;
-}
-.rank-bar {
-  height: 100%;
-  background: linear-gradient(90deg, var(--primary), #818cf8);
-  border-radius: 5px;
-  transition: width 0.5s ease;
-}
-.rank-pct {
-  font-size: 14px;
-  font-weight: 700;
-  min-width: 50px;
-  text-align: right;
 }
 
-/* 审计员卡片样式 */
-.auditor-card {
-  border-left: 4px solid var(--success);
-  background: #fcfdfd;
-}
-.auditor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-.auditor-badge {
+.intro-kicker {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
   font-size: 11px;
-  background: var(--success);
-  color: white;
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-.audit-list {
-  padding-left: 18px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.8;
-  margin: 12px 0;
-}
-.audit-actions {
-  display: flex;
-  gap: 10px;
-}
-.rank-name-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.cid-verify-link {
-  font-size: 10px;
-  background: #f1f5f9;
-  color: var(--text-secondary);
-  text-decoration: none;
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-.cid-verify-link:hover {
-  background: var(--primary);
-  color: white;
-}
-.badge-info {
-  background: #e0f2fe;
   color: #0369a1;
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-.badge-success {
-  background: #ecfdf5;
-  color: #059669;
-}
-.badge-warning {
-  background: #fffbeb;
-  color: #d97706;
-}
-.badge-danger {
-  background: #fef2f2;
-  color: #dc2626;
-}
-.results-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
+  font-weight: 700;
 }
 
-@media (max-width: 640px) {
-  .stats-row {
-    grid-template-columns: repeat(2, 1fr);
+.intro-head h2 {
+  margin: 0;
+  font-size: 30px;
+}
+
+.desc {
+  margin: 12px 0 18px;
+  color: var(--text-secondary);
+  max-width: 900px;
+}
+
+.ghost-link {
+  border: 1px solid rgba(3, 105, 161, 0.18);
+  background: rgba(2, 132, 199, 0.06);
+  color: #075985;
+  text-decoration: none;
+}
+
+.ghost-link:hover {
+  background: rgba(2, 132, 199, 0.12);
+}
+
+.empty-card {
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.empty-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.empty-desc {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+  .intro-head {
+    flex-direction: column;
+  }
+
+  .intro-head h2 {
+    font-size: 24px;
   }
 }
 </style>
-

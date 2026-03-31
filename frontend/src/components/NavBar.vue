@@ -6,11 +6,14 @@
       </router-link>
       <div v-if="!isAdminPage" class="nav-links">
         <router-link to="/" class="nav-link">首页</router-link>
-        <router-link to="/auth" class="nav-link">领取选票</router-link>
-        <router-link to="/vote" class="nav-link">投票大厅</router-link>
+        <router-link to="/auth" class="nav-link">{{ auth.isAuthenticated ? "身份中心" : "登录" }}</router-link>
+        <router-link to="/vote" class="nav-link">我的投票</router-link>
         <router-link to="/results" class="nav-link">实时结果</router-link>
       </div>
       <div v-else class="nav-spacer"></div>
+      <div v-if="auth.isAuthenticated && !isAdminPage" class="nav-session">
+        学号 {{ auth.studentId }}
+      </div>
       <div class="nav-wallet">
         <WalletConnect />
       </div>
@@ -22,10 +25,10 @@
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 import WalletConnect from "./WalletConnect.vue";
-import { useWalletStore } from "../stores/wallet.js";
+import { useAuthStore } from "../stores/auth.js";
 
 const route = useRoute();
-const wallet = useWalletStore();
+const auth = useAuthStore();
 
 const isAdminPage = computed(() => route.path === "/admin");
 </script>
@@ -87,5 +90,15 @@ const isAdminPage = computed(() => route.path === "/admin");
 
 .nav-wallet {
   flex-shrink: 0;
+}
+
+.nav-session {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: 999px;
 }
 </style>

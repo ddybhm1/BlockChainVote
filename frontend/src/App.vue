@@ -8,7 +8,15 @@
 </template>
 
 <script setup>
+import { onMounted } from "vue";
 import NavBar from "./components/NavBar.vue";
+import { useAuthStore } from "./stores/auth.js";
+
+const auth = useAuthStore();
+
+onMounted(() => {
+  auth.hydrate();
+});
 </script>
 
 <style>
@@ -33,7 +41,7 @@ body {
 }
 
 .main-content {
-  max-width: 960px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 24px 16px;
 }

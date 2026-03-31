@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import { useWalletStore } from "../stores/wallet.js";
+import { AUTH_TOKEN_KEY } from "../services/api.js";
 
 const routes = [
   {
@@ -15,6 +15,7 @@ const routes = [
   {
     path: "/vote",
     name: "Vote",
+    meta: { requiresAuth: true },
     component: () => import("../views/VoteView.vue"),
   },
   {
@@ -34,8 +35,11 @@ const router = createRouter({
   routes,
 });
 
-// 路由守卫：检查管理员权限
 router.beforeEach((to, from, next) => {
+  if (to.meta.requiresAuth && !window.localStorage.getItem(AUTH_TOKEN_KEY)) {
+    next({ name: "Auth", query: { redirect: to.fullPath } });
+    return;
+  }
   next();
 });
 

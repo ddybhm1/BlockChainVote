@@ -4,6 +4,33 @@ import { ethers } from "ethers";
 import { useWalletStore } from "./wallet.js";
 import { ELECTION_ABI, FACTORY_ABI, FACTORY_ADDRESS, IPFS_GATEWAY } from "../services/contract.js";
 
+function decodeBase64Utf8(value) {
+  const binary = window.atob(value);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function parseTokenMetadata(tokenUri) {
+  if (!tokenUri) return null;
+
+  if (tokenUri.startsWith("data:application/json;base64,")) {
+    const encoded = tokenUri.slice("data:application/json;base64,".length);
+    return JSON.parse(decodeBase64Utf8(encoded));
+  }
+
+  if (tokenUri.startsWith("data:application/json;utf8,")) {
+    const encoded = tokenUri.slice("data:application/json;utf8,".length);
+    return JSON.parse(decodeURIComponent(encoded));
+  }
+
+  return {
+    name: "Vote Badge",
+    description: "",
+    image: "",
+    external_url: tokenUri,
+  };
+}
+
 export const useVotingStore = defineStore("voting", () => {
   const candidates = ref([]);
   const votingStarted = ref(false);
@@ -15,11 +42,11 @@ export const useVotingStore = defineStore("voting", () => {
   const loading = ref(false);
   const error = ref("");
 
-  // 多项目相关
-  const currentElection = ref(""); // 当前选中的投票项目合约地址
-  const elections = ref([]);       // 所有投票项目列表
-  const startTime = ref(0);        // 当前投票项目的开始时间（秒）
-  const endTime = ref(0);          // 当前投票项目的截止时间（秒）
+  const currentElection = ref("");
+  const elections = ref([]);
+  const startTime = ref(0);
+  const endTime = ref(0);
+  const badge = ref(null);
 
   function getProvider() {
     return new ethers.JsonRpcProvider(
@@ -27,16 +54,10 @@ export const useVotingStore = defineStore("voting", () => {
     );
   }
 
-  /**
-   * 获取工厂合约只读实例
-   */
   function getFactoryReadContract() {
     return new ethers.Contract(FACTORY_ADDRESS, FACTORY_ABI, getProvider());
   }
 
-  /**
-   * 获取工厂合约可写实例
-   */
   async function getFactoryWriteContract() {
     const wallet = useWalletStore();
     const signer = await wallet.getSigner();
@@ -44,61 +65,47 @@ export const useVotingStore = defineStore("voting", () => {
     return new ethers.Contract(FACTORY_ADDRESS, FACTORY_ABI, signer);
   }
 
-  /**
-   * 获取指定投票合约的只读实例
-   */
   function getElectionReadContract(addr) {
     const address = addr || currentElection.value;
     if (!address) throw new Error("未选择投票项目");
     return new ethers.Contract(address, ELECTION_ABI, getProvider());
   }
 
-  /**
-   * 获取指定投票合约的可写实例
-   */
   async function getElectionWriteContract(addr) {
     const address = addr || currentElection.value;
     if (!address) throw new Error("未选择投票项目");
+
     const wallet = useWalletStore();
     const signer = await wallet.getSigner();
     if (!signer) throw new Error("请先连接 MetaMask 钱包");
+
     return new ethers.Contract(address, ELECTION_ABI, signer);
   }
 
-  /**
-   * 从工厂合约加载所有投票项目
-   */
   async function loadElections() {
     if (!FACTORY_ADDRESS) {
       error.value = "工厂合约地址未配置";
       return;
     }
+
     try {
       const factory = getFactoryReadContract();
-      const result = await factory.getAllElections();
-      const [addrs, titles, creators, createdAts] = result;
-      const list = [];
-      for (let i = 0; i < addrs.length; i++) {
-        list.push({
-          address: addrs[i],
-          title: titles[i],
-          creator: creators[i],
-          createdAt: Number(createdAts[i]),
-        });
-      }
-      elections.value = list;
+      const [addrs, titles, creators, createdAts] = await factory.getAllElections();
+
+      elections.value = addrs.map((address, index) => ({
+        address,
+        title: titles[index],
+        creator: creators[index],
+        createdAt: Number(createdAts[index]),
+      }));
     } catch (err) {
       console.error("加载投票项目列表失败:", err);
       error.value = "加载项目列表失败: " + (err.message || err);
     }
   }
 
-  /**
-   * 选择投票项目
-   */
   async function selectElection(addr) {
     currentElection.value = addr;
-    // 重置当前状态
     candidates.value = [];
     votingStarted.value = false;
     votingEnded.value = false;
@@ -108,53 +115,48 @@ export const useVotingStore = defineStore("voting", () => {
     hasVoted.value = false;
     startTime.value = 0;
     endTime.value = 0;
-    if (addr) {
-      try {
-        const contract = getElectionReadContract(addr);
-        startTime.value = Number(await contract.votingStartTime());
-        endTime.value = Number(await contract.votingEndTime());
-      } catch (e) {
-        // 忽略错误
-      }
+    badge.value = null;
+
+    if (!addr) return;
+
+    try {
+      const contract = getElectionReadContract(addr);
+      startTime.value = Number(await contract.votingStartTime());
+      endTime.value = Number(await contract.votingEndTime());
+    } catch {
+      // ignore
     }
   }
 
-  /**
-   * 从链上加载当前投票项目的所有候选人及投票状态
-   */
   async function loadCandidates() {
     if (!currentElection.value) {
       error.value = "请先选择投票项目";
       return;
     }
 
-    // 每次加载候选人时也同步刷新投票时间
-    try {
-      const contract = getElectionReadContract();
-      startTime.value = Number(await contract.votingStartTime());
-      endTime.value = Number(await contract.votingEndTime());
-    } catch (e) {}
-
     loading.value = true;
     error.value = "";
 
     try {
       const contract = getElectionReadContract();
-
-      const [status, allCandidates] = await Promise.all([
+      const [status, allCandidates, chainStartTime, chainEndTime] = await Promise.all([
         contract.getVotingStatus(),
         contract.getAllCandidates(),
+        contract.votingStartTime(),
+        contract.votingEndTime(),
       ]);
 
       votingStarted.value = status[0];
       votingEnded.value = status[1];
       totalVoters.value = Number(status[3]);
       totalVotes.value = Number(status[4]);
+      startTime.value = Number(chainStartTime);
+      endTime.value = Number(chainEndTime);
 
       const [names, cids, votes] = allCandidates;
       const list = [];
 
-      for (let i = 0; i < names.length; i++) {
+      for (let i = 0; i < names.length; i += 1) {
         const item = {
           name: names[i],
           cid: cids[i],
@@ -168,13 +170,11 @@ export const useVotingStore = defineStore("voting", () => {
             const res = await fetch(`${IPFS_GATEWAY}${cids[i]}`);
             if (res.ok) {
               const data = await res.json();
-              item.photoUrl = data.photo
-                ? `${IPFS_GATEWAY}${data.photo}`
-                : "";
+              item.photoUrl = data.photo ? `${IPFS_GATEWAY}${data.photo}` : "";
               item.manifesto = data.manifesto || "";
             }
           } catch {
-            // IPFS 加载失败不阻塞渲染
+            // IPFS failures should not block the ballot view.
           }
         }
 
@@ -190,28 +190,63 @@ export const useVotingStore = defineStore("voting", () => {
     }
   }
 
-  /**
-   * 检查当前地址的授权和投票状态
-   */
   async function checkVoterStatus(address) {
     if (!currentElection.value || !address) return;
 
     try {
       const contract = getElectionReadContract();
-      const [auth, voted] = await Promise.all([
+      const [authorized, voted] = await Promise.all([
         contract.isAuthorized(address),
         contract.hasVoted(address),
       ]);
-      isAuthorized.value = auth;
+
+      isAuthorized.value = authorized;
       hasVoted.value = voted;
     } catch (err) {
       console.error("检查选民状态失败:", err);
     }
   }
 
-  /**
-   * 投票 - 直接通过 MetaMask 签名发送至区块链
-   */
+  async function loadBadge(holderAddress) {
+    if (!currentElection.value || !holderAddress) {
+      badge.value = null;
+      return null;
+    }
+
+    try {
+      const contract = getElectionReadContract();
+      const ownsBadge = await contract.hasBadge(holderAddress);
+
+      if (!ownsBadge) {
+        badge.value = null;
+        return null;
+      }
+
+      const tokenId = Number(await contract.badgeTokenOf(holderAddress));
+      const [tokenUri, badgeName, badgeDescription] = await Promise.all([
+        contract.tokenURI(tokenId),
+        contract.badgeDisplayName(),
+        contract.badgeDescription(),
+      ]);
+
+      const metadata = parseTokenMetadata(tokenUri) || {};
+      badge.value = {
+        tokenId,
+        tokenUri,
+        name: metadata.name || badgeName,
+        description: metadata.description || badgeDescription,
+        image: metadata.image || "",
+        attributes: metadata.attributes || [],
+      };
+
+      return badge.value;
+    } catch (err) {
+      console.error("加载投票徽章失败:", err);
+      badge.value = null;
+      return null;
+    }
+  }
+
   async function castVote(candidateId) {
     const contract = await getElectionWriteContract();
     const tx = await contract.vote(candidateId);
@@ -222,7 +257,7 @@ export const useVotingStore = defineStore("voting", () => {
     }
 
     hasVoted.value = true;
-    return receipt.hash;
+    return tx.hash;
   }
 
   return {
@@ -239,10 +274,12 @@ export const useVotingStore = defineStore("voting", () => {
     elections,
     startTime,
     endTime,
+    badge,
     loadElections,
     selectElection,
     loadCandidates,
     checkVoterStatus,
+    loadBadge,
     castVote,
     getFactoryReadContract,
     getFactoryWriteContract,

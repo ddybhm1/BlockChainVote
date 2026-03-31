@@ -8,6 +8,7 @@ class Election(Base):
     __tablename__ = "elections"
     id = Column(Integer, primary_key=True, autoincrement=True)
     contract_address = Column(String(42), unique=True, nullable=False, index=True)
+    title = Column(String(255), nullable=True, default="")
     start_time = Column(BigInteger, nullable=False)
     end_time = Column(BigInteger, nullable=False)
     # 可扩展：项目名称、描述等
@@ -29,6 +30,11 @@ class ClaimedTicket(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     student_id = Column(String(20), nullable=False, index=True)
     election_address = Column(String(42), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="CLAIMED", index=True)
+    tx_hash = Column(String(255), nullable=True)
+    vote_tx_hash = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False, index=True)
 
     __table_args__ = (
         UniqueConstraint("student_id", "election_address", name="uq_student_election"),

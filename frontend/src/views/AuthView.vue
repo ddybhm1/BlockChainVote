@@ -1,191 +1,244 @@
 <template>
   <div class="auth-view">
-    <div class="card">
-      <h2>🎫 领取投票选票</h2>
-      <p class="desc">验证学号身份后，授权当前钱包地址获得投票权。后端不会记录地址与学号的关联。</p>
-
-      <ElectionSelector v-model="selectedElection" />
-
-      <div v-if="!wallet.address" class="alert alert-info">
-        请先点击右上角「连接钱包」按钮连接 MetaMask 钱包
+    <section class="card auth-hero">
+      <div class="hero-copy">
+        <p class="hero-kicker">Identity-Centered Flow</p>
+        <h2>学号登录后，再决定每个项目使用哪个钱包投票</h2>
+        <p class="desc">
+          系统先用学号和密码建立登录会话，再展示你拥有投票权的项目列表。钱包只会在具体项目点击“领票”或“投票”时临时介入，支持为不同项目切换不同地址。
+        </p>
       </div>
 
-      <div v-else-if="!selectedElection" class="alert alert-info">
-        请先选择要参与的投票项目
+      <div class="hero-side card inner-card">
+        <template v-if="auth.isAuthenticated">
+          <div class="session-chip">已登录</div>
+          <h3>欢迎回来</h3>
+          <p class="student-line">当前学号：<strong>{{ auth.studentId }}</strong></p>
+          <p class="session-desc">现在可以进入“我的投票”，查看各项目的未领票、已领票和已投票状态。</p>
+
+          <div class="session-actions">
+            <router-link to="/vote" class="btn btn-primary">进入我的投票</router-link>
+            <button class="btn btn-ghost" type="button" @click="handleLogout">退出登录</button>
+          </div>
+        </template>
+
+        <template v-else>
+          <h3>身份登录</h3>
+          <p class="session-desc">先建立学号会话，再按项目选择钱包地址进行匿名投票。</p>
+
+          <form class="auth-form" @submit.prevent="handleLogin">
+            <div class="form-group">
+              <label>学号</label>
+              <input v-model="form.studentId" class="input-field" placeholder="请输入学号" required />
+            </div>
+            <div class="form-group">
+              <label>密码</label>
+              <input v-model="form.password" class="input-field" type="password" placeholder="请输入密码" required />
+            </div>
+
+            <div v-if="message" :class="['alert', loginSuccess ? 'alert-success' : 'alert-error']">
+              {{ message }}
+            </div>
+
+            <button class="btn btn-primary" type="submit" :disabled="auth.loading" style="width: 100%">
+              {{ auth.loading ? "登录中..." : "登录并查看我的投票" }}
+            </button>
+          </form>
+        </template>
       </div>
+    </section>
 
-      <template v-else>
-        <div class="card time-card" style="margin-bottom:16px;">
-          <div><strong>投票开始时间：</strong>{{ voting.startTime ? new Date(voting.startTime * 1000).toLocaleString() : '未部署' }}</div>
-          <div><strong>投票截止时间：</strong>{{ voting.endTime ? new Date(voting.endTime * 1000).toLocaleString() : '未部署' }}</div>
-          <div class="time-status">
-            <strong>投票状态：</strong>
-            <span :class="['status-badge', statusClass]">{{ statusText }}</span>
-          </div>
-        </div>
-        <div v-if="result.message" :class="['alert', result.success ? 'alert-success' : 'alert-error']">
-          {{ result.message }}
-          <div v-if="result.txHash" class="tx-link">
-            交易哈希:
-            <a :href="`https://sepolia.etherscan.io/tx/${result.txHash}`" target="_blank">
-              {{ result.txHash.slice(0, 18) }}...
-            </a>
-          </div>
-        </div>
-
-        <form @submit.prevent="handleClaim" class="auth-form">
-          <div class="form-group">
-            <label>当前钱包地址（匿名地址）</label>
-            <input class="input-field" :value="wallet.address" disabled />
-          </div>
-          <div class="form-group">
-            <label>学号</label>
-            <input class="input-field" v-model="form.studentId" placeholder="请输入学号" required />
-          </div>
-          <div class="form-group">
-            <label>密码</label>
-            <input class="input-field" type="password" v-model="form.password" placeholder="请输入密码" required />
-          </div>
-          <button class="btn btn-primary" type="submit" :disabled="loading" style="width:100%">
-            {{ loading ? '授权中...(等待链上确认)' : '申请投票资格' }}
-          </button>
-        </form>
-      </template>
-    </div>
-
-    <div class="card">
-      <h3>🔐 安全机制说明</h3>
-      <ul class="security-notes">
-        <li><strong>身份验证：</strong>后端在 MySQL 中校验学号与密码，拦截非法用户</li>
-        <li><strong>防重复领票：</strong>每个学号在每个投票项目中仅能领取一次投票权</li>
-        <li><strong>阅后即焚：</strong>后端授权完成后立即丢弃钱包地址，MySQL 中不保存任何映射</li>
-        <li><strong>匿名投票：</strong>后续投票直接通过 MetaMask 与区块链交互，不经过后端</li>
-      </ul>
-    </div>
+    <section class="card">
+      <h3>流程亮点</h3>
+      <div class="flow-grid">
+        <article class="flow-card">
+          <span class="step-no">01</span>
+          <h4>身份登录</h4>
+          <p>后端签发学号会话，前端后续接口都带 JWT，不再用钱包地址充当登录凭证。</p>
+        </article>
+        <article class="flow-card">
+          <span class="step-no">02</span>
+          <h4>查看我的项目</h4>
+          <p>仪表盘从 MySQL 读取每个项目的状态机，直接告诉你哪些项目未领票、已领票、已投票。</p>
+        </article>
+        <article class="flow-card">
+          <span class="step-no">03</span>
+          <h4>项目内临时连钱包</h4>
+          <p>只有在具体项目中点击领票或投票时才连接 MetaMask，因此可以自由切换地址完成跨项目匿名投票。</p>
+        </article>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue";
-import { useWalletStore } from "../stores/wallet.js";
-import { claimTicket } from "../services/api.js";
-import ElectionSelector from "../components/ElectionSelector.vue";
-import { useVotingStore } from "../stores/voting.js";
+import { reactive, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { useAuthStore } from "../stores/auth.js";
 
-const wallet = useWalletStore();
-const voting = useVotingStore();
-const loading = ref(false);
-const form = reactive({ studentId: "", password: "" });
-const result = reactive({ success: false, message: "", txHash: "" });
-const selectedElection = ref("");
+const auth = useAuthStore();
+const router = useRouter();
+const route = useRoute();
 
-watch(selectedElection, async (addr) => {
-  if (!addr) {
-    await voting.selectElection("");
-    return;
-  }
-  await voting.selectElection(addr);
-  await voting.loadCandidates();
+const form = reactive({
+  studentId: auth.studentId || "",
+  password: "",
 });
+const message = ref("");
+const loginSuccess = ref(false);
 
-const statusText = computed(() => {
-  if (!voting.votingStarted) return "未开始";
-  if (voting.votingEnded) return "已截止";
-  return "进行中";
-});
-
-const statusClass = computed(() => {
-  if (!voting.votingStarted) return "badge-warning";
-  if (voting.votingEnded) return "badge-danger";
-  return "badge-success";
-});
-
-async function handleClaim() {
-  if (!wallet.address || !selectedElection.value) return;
-  loading.value = true;
-  result.message = "";
-  result.txHash = "";
+async function handleLogin() {
+  message.value = "";
 
   try {
-    const res = await claimTicket(form.studentId, form.password, wallet.address, selectedElection.value);
-    result.success = true;
-    result.message = res.message;
-    result.txHash = res.tx_hash || "";
+    await auth.login(form.studentId, form.password);
+    await auth.loadMyElections();
+    loginSuccess.value = true;
+    message.value = "登录成功，正在进入我的投票仪表盘。";
+    router.push(route.query.redirect || "/vote");
   } catch (err) {
-    result.success = false;
-    result.message = err.response?.data?.detail || err.message || "领票失败";
-  } finally {
-    loading.value = false;
+    loginSuccess.value = false;
+    message.value = err.response?.data?.detail || err.message || "登录失败";
   }
+}
+
+function handleLogout() {
+  auth.logout();
+  form.password = "";
+  message.value = "";
 }
 </script>
 
 <style scoped>
-.auth-view h2 {
-  margin-bottom: 8px;
-}
-.desc {
-  color: var(--text-secondary);
-  font-size: 14px;
-  margin-bottom: 20px;
-}
-.time-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.time-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.auth-form {
+.auth-view {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
+
+.auth-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 420px);
+  gap: 20px;
+  align-items: stretch;
+}
+
+.hero-copy {
+  padding-right: 12px;
+}
+
+.hero-kicker {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #0f766e;
+}
+
+.hero-copy h2 {
+  margin: 0 0 12px;
+  font-size: 34px;
+  line-height: 1.2;
+}
+
+.desc,
+.session-desc,
+.flow-card p {
+  color: var(--text-secondary);
+}
+
+.inner-card {
+  margin-bottom: 0;
+  background:
+    linear-gradient(145deg, rgba(79, 70, 229, 0.08), rgba(14, 165, 233, 0.05)),
+    #ffffff;
+}
+
+.session-chip {
+  display: inline-flex;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.student-line {
+  margin: 12px 0 8px;
+  font-size: 15px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
+
 .form-group label {
   font-size: 14px;
   font-weight: 600;
 }
-.tx-link {
-  margin-top: 6px;
-  font-size: 13px;
+
+.session-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
 }
-.tx-link a {
-  color: inherit;
-  text-decoration: underline;
+
+.btn-ghost {
+  background: #ffffff;
+  color: var(--text);
+  border: 1px solid var(--border);
 }
-.status-badge {
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 600;
+
+.flow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
-.badge-success {
-  background: #ecfdf5;
-  color: #059669;
+
+.flow-card {
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
 }
-.badge-warning {
-  background: #fffbeb;
-  color: #d97706;
+
+.flow-card h4 {
+  margin: 10px 0 8px;
 }
-.badge-danger {
-  background: #fef2f2;
-  color: #dc2626;
+
+.step-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
-.security-notes {
-  list-style: none;
-  padding: 0;
-}
-.security-notes li {
-  padding: 6px 0;
-  font-size: 14px;
-  color: var(--text-secondary);
+
+@media (max-width: 900px) {
+  .auth-hero,
+  .flow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-copy h2 {
+    font-size: 28px;
+  }
 }
 </style>

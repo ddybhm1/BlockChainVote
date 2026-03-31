@@ -1,57 +1,129 @@
-# Sample Hardhat 3 Beta Project (`mocha` and `ethers`)
+# BlockChainVote
 
-This project showcases a Hardhat 3 Beta project using `mocha` for tests and the `ethers` library for Ethereum interactions.
+一个基于 `FastAPI + Vue + Solidity` 的区块链投票系统，当前已经包含：
 
-To learn more about the Hardhat 3 Beta, please visit the [Getting Started guide](https://hardhat.org/docs/getting-started#getting-started-with-hardhat-3). To share your feedback, join our [Hardhat 3 Beta](https://hardhat.org/hardhat3-beta-telegram-group) Telegram group or [open an issue](https://github.com/NomicFoundation/hardhat/issues/new) in our GitHub issue tracker.
+- 多选举工厂合约
+- 链上实时投票大屏
+- 投票成功后自动铸造的 SBT 纪念徽章
 
-## Project Overview
+## 开发环境
 
-This example project includes:
+- Ubuntu 20.04 / WSL2
+- Node.js 22.x
+- Python 3.12
 
-- A simple Hardhat configuration file.
-- Foundry-compatible Solidity unit tests.
-- TypeScript integration tests using `mocha` and ethers.js
-- Examples demonstrating how to connect to different types of networks, including locally simulating OP mainnet.
+## 首次准备
 
-## Usage
+### 前端依赖
 
-### Running Tests
+```bash
+cd ~/BlockChainVote/frontend
+npm install
+```
 
-To run all the tests in the project, execute the following command:
+### 后端虚拟环境
 
-```shell
+```bash
+cd ~/BlockChainVote/backend
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -U pip setuptools wheel
+pip install -r requirements.txt
+```
+
+### 环境变量
+
+按需补齐这些文件：
+
+- 根目录 `.env`
+- `frontend/.env`
+- `backend/.env`
+
+常见变量包括：
+
+- `SEPOLIA_RPC_URL`
+- `DEPLOYER_PRIVATE_KEY`
+- `FACTORY_ADDRESS`
+- `VITE_FACTORY_ADDRESS`
+- `VITE_SEPOLIA_RPC`
+- `FRONTEND_ORIGIN`
+
+## 手动启动
+
+### 启动后端
+
+```bash
+cd ~/BlockChainVote/backend
+source .venv/bin/activate
+uvicorn main:app --reload
+```
+
+默认地址：
+
+- `http://127.0.0.1:8000`
+
+### 启动前端
+
+```bash
+cd ~/BlockChainVote/frontend
+npm run dev -- --host --strictPort
+```
+
+默认地址：
+
+- `http://localhost:5173`
+
+## 常用命令
+
+### 合约编译
+
+```bash
+cd ~/BlockChainVote
+npx hardhat compile
+```
+
+### 合约测试
+
+```bash
+cd ~/BlockChainVote
 npx hardhat test
 ```
 
-You can also selectively run the Solidity or `mocha` tests:
+### 前端构建
 
-```shell
-npx hardhat test solidity
-npx hardhat test mocha
+```bash
+cd ~/BlockChainVote/frontend
+npm run build
 ```
 
-### Make a deployment to Sepolia
+## 常见问题
 
-This project includes an example Ignition module to deploy the contract. You can deploy this module to a locally simulated chain or to Sepolia.
+### `vite: Permission denied`
 
-To run the deployment to a local chain:
+通常是 WSL 里误用了 Windows 版 Node。确认：
 
-```shell
-npx hardhat ignition deploy ignition/modules/Counter.ts
+```bash
+which node
+node -p "process.platform"
 ```
 
-To run the deployment to Sepolia, you need an account with funds to send the transaction. The provided Hardhat configuration includes a Configuration Variable called `SEPOLIA_PRIVATE_KEY`, which you can use to set the private key of the account you want to use.
+应优先看到 Linux 版 Node，例如：
 
-You can set the `SEPOLIA_PRIVATE_KEY` variable using the `hardhat-keystore` plugin or by setting it as an environment variable.
+- `/home/mike/.nvm/.../bin/node`
+- `linux`
 
-To set the `SEPOLIA_PRIVATE_KEY` config variable using `hardhat-keystore`:
+### `5173` 被占用
 
-```shell
-npx hardhat keystore set SEPOLIA_PRIVATE_KEY
+```bash
+fuser -k 5173/tcp
+cd ~/BlockChainVote/frontend
+npm run dev -- --host --strictPort
 ```
 
-After setting the variable, you can run the deployment with the Sepolia network:
+### 后端依赖缺失
 
-```shell
-npx hardhat ignition deploy --network sepolia ignition/modules/Counter.ts
+```bash
+cd ~/BlockChainVote/backend
+source .venv/bin/activate
+pip install -r requirements.txt
 ```

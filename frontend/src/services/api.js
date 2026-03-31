@@ -1,6 +1,106 @@
-/**
- * 设置投票时间（管理员操作）
- */
+import axios from "axios";
+
+export const AUTH_TOKEN_KEY = "bcv_auth_token";
+export const AUTH_STUDENT_KEY = "bcv_student_id";
+
+const api = axios.create({
+  baseURL: "/api",
+  timeout: 120000,
+});
+
+function getStoredToken() {
+  return window.localStorage.getItem(AUTH_TOKEN_KEY) || "";
+}
+
+export function setAuthToken(token) {
+  if (token) {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+    api.defaults.headers.common.Authorization = `Bearer ${token}`;
+    return;
+  }
+
+  window.localStorage.removeItem(AUTH_TOKEN_KEY);
+  delete api.defaults.headers.common.Authorization;
+}
+
+export function setStoredStudentId(studentId) {
+  if (studentId) {
+    window.localStorage.setItem(AUTH_STUDENT_KEY, studentId);
+    return;
+  }
+  window.localStorage.removeItem(AUTH_STUDENT_KEY);
+}
+
+export function getStoredStudentId() {
+  return window.localStorage.getItem(AUTH_STUDENT_KEY) || "";
+}
+
+const initialToken = getStoredToken();
+if (initialToken) {
+  api.defaults.headers.common.Authorization = `Bearer ${initialToken}`;
+}
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      setAuthToken("");
+      setStoredStudentId("");
+    }
+    return Promise.reject(error);
+  }
+);
+
+export async function loginStudent(studentId, password) {
+  const res = await api.post("/auth/login", {
+    student_id: studentId,
+    password,
+  });
+  return res.data;
+}
+
+export async function getSession() {
+  const res = await api.get("/auth/me");
+  return res.data;
+}
+
+export async function getMyElections() {
+  const res = await api.get("/auth/my-elections");
+  return res.data;
+}
+
+export async function getElectionTicketStatus(electionAddress) {
+  const res = await api.get(`/auth/ticket-status/${electionAddress}`);
+  return res.data;
+}
+
+export async function authorizeTicket(electionAddress, walletAddress) {
+  const res = await api.post("/auth/authorize-ticket", {
+    election_address: electionAddress,
+    wallet_address: walletAddress,
+  });
+  return res.data;
+}
+
+export async function markVoteComplete(electionAddress, walletAddress, txHash) {
+  const res = await api.post("/auth/mark-voted", {
+    election_address: electionAddress,
+    wallet_address: walletAddress,
+    tx_hash: txHash,
+  });
+  return res.data;
+}
+
+export async function claimTicket(studentId, password, walletAddress, electionAddress) {
+  const res = await api.post("/auth/claim-ticket", {
+    student_id: studentId,
+    password,
+    wallet_address: walletAddress,
+    election_address: electionAddress,
+  });
+  return res.data;
+}
+
 export async function setVotingTime(electionAddress, startTime, endTime) {
   const res = await api.post("/admin/set-voting-time", {
     election_address: electionAddress,
@@ -9,58 +109,29 @@ export async function setVotingTime(electionAddress, startTime, endTime) {
   });
   return res.data;
 }
-import axios from "axios";
 
-const api = axios.create({
-  baseURL: "/api",
-  timeout: 120000, // 链上交易可能需要较长时间
-});
-
-/**
- * 领取选票 - 向后端发送 KYC 请求
- * 后端验证身份后授权匿名地址到指定投票项目的合约，然后丢弃地址信息
- */
-export async function claimTicket(studentId, password, walletAddress, electionAddress) {
-  const res = await api.post("/auth/claim-ticket", {
-    student_id: studentId,
-    password: password,
-    wallet_address: walletAddress,
-    election_address: electionAddress,
-  });
-  return res.data;
-}
-
-/**
- * 注册选民（管理员操作）
- */
 export async function registerVoter(studentId, password, electionAddress) {
   const res = await api.post("/admin/register-voter", {
     student_id: studentId,
-    password: password,
+    password,
     election_address: electionAddress,
   });
   return res.data;
 }
 
-/**
- * 批量导入选民（Excel）
- */
 export async function uploadVotersExcel(electionAddress, file) {
   const formData = new FormData();
   formData.append("election_address", electionAddress);
   formData.append("file", file);
-  
+
   const res = await api.post("/admin/upload-voters-excel", formData, {
     headers: {
-      "Content-Type": "multipart/form-data"
-    }
+      "Content-Type": "multipart/form-data",
+    },
   });
   return res.data;
 }
 
-/**
- * 上传文件到 IPFS，返回 CID
- */
 export async function uploadToIPFS(file) {
   const formData = new FormData();
   formData.append("file", file);
@@ -71,9 +142,6 @@ export async function uploadToIPFS(file) {
   return res.data;
 }
 
-/**
- * 获取选民统计（支持按项目查询）
- */
 export async function getVotersCount(electionAddress) {
   const params = {};
   if (electionAddress) params.election_address = electionAddress;
@@ -81,25 +149,16 @@ export async function getVotersCount(electionAddress) {
   return res.data;
 }
 
-/**
- * 记录交易日志
- */
 export async function logTransaction(data) {
   const res = await api.post("/admin/log-transaction", data);
   return res.data;
 }
 
-/**
- * 记录安全日志
- */
 export async function logSecurity(data) {
   const res = await api.post("/admin/log-security", data);
   return res.data;
 }
 
-/**
- * 获取交易日志
- */
 export async function getTransactionLogs(electionAddress) {
   const params = {};
   if (electionAddress) params.election_address = electionAddress;
@@ -107,12 +166,11 @@ export async function getTransactionLogs(electionAddress) {
   return res.data;
 }
 
-/**
- * 获取安全日志
- */
 export async function getSecurityLogs(electionAddress) {
   const params = {};
   if (electionAddress) params.election_address = electionAddress;
   const res = await api.get("/admin/security-logs", { params });
   return res.data;
 }
+
+export default api;
