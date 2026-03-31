@@ -17,7 +17,7 @@
           <p class="session-desc">现在可以进入“我的投票”，查看各项目的未领票、已领票和已投票状态。</p>
 
           <div class="session-actions">
-            <router-link to="/vote" class="btn btn-primary">进入我的投票</router-link>
+            <router-link to="/dashboard" class="btn btn-primary">进入我的投票</router-link>
             <button class="btn btn-ghost" type="button" @click="handleLogout">退出登录</button>
           </div>
         </template>
@@ -95,7 +95,7 @@ async function handleLogin() {
     await auth.loadMyElections();
     loginSuccess.value = true;
     message.value = "登录成功，正在进入我的投票仪表盘。";
-    router.push(route.query.redirect || "/vote");
+    router.push(route.query.redirect || "/dashboard");
   } catch (err) {
     loginSuccess.value = false;
     message.value = err.response?.data?.detail || err.message || "登录失败";

@@ -10,11 +10,19 @@ const routes = [
   {
     path: "/auth",
     name: "Auth",
-    component: () => import("../views/AuthView.vue"),
+    redirect: (to) => ({
+      name: "Home",
+      query: {
+        ...to.query,
+        login: "1",
+        redirect: typeof to.query.redirect === "string" ? to.query.redirect : "/dashboard",
+      },
+    }),
   },
   {
-    path: "/vote",
-    name: "Vote",
+    path: "/dashboard",
+    alias: "/vote",
+    name: "Dashboard",
     meta: { requiresAuth: true },
     component: () => import("../views/VoteView.vue"),
   },
@@ -36,8 +44,15 @@ const router = createRouter({
 });
 
 router.beforeEach((to, from, next) => {
-  if (to.meta.requiresAuth && !window.localStorage.getItem(AUTH_TOKEN_KEY)) {
-    next({ name: "Auth", query: { redirect: to.fullPath } });
+  const hasToken = Boolean(window.localStorage.getItem(AUTH_TOKEN_KEY));
+
+  if (to.name === "Home" && hasToken && to.query.preview !== "1") {
+    next({ name: "Dashboard" });
+    return;
+  }
+
+  if (to.meta.requiresAuth && !hasToken) {
+    next({ name: "Home", query: { login: "1", redirect: to.fullPath } });
     return;
   }
   next();
