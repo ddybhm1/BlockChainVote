@@ -125,11 +125,11 @@ class VoteStreamManager:
         w3 = get_web3()
         contract = get_contract(w3, election_address)
         status = contract.functions.getVotingStatus().call()
-        names, cids, votes = contract.functions.getAllCandidates().call()
+        names, imageCids, manifestoCids, votes = contract.functions.getAllCandidates().call()
         latest_block = int(w3.eth.block_number)
 
         recent_events = self._fetch_recent_votes(w3, contract, latest_block)
-        candidates = self._serialize_candidates(names, cids, votes)
+        candidates = self._serialize_candidates(names, imageCids, manifestoCids, votes)
 
         return {
             "type": "snapshot",
@@ -168,14 +168,14 @@ class VoteStreamManager:
             }
 
         status = contract.functions.getVotingStatus().call()
-        names, cids, votes = contract.functions.getAllCandidates().call()
+        names, imageCids, manifestoCids, votes = contract.functions.getAllCandidates().call()
         new_events = self._serialize_vote_events(w3, logs)
 
         return {
             "last_processed_block": latest_block,
             "new_events": new_events,
             "totals": self._serialize_totals(status),
-            "candidates": self._serialize_candidates(names, cids, votes),
+            "candidates": self._serialize_candidates(names, imageCids, manifestoCids, votes),
         }
 
     def _fetch_recent_votes(self, w3: Web3, contract: Any, latest_block: int) -> list[dict[str, Any]]:
@@ -218,13 +218,14 @@ class VoteStreamManager:
         return events
 
     def _serialize_candidates(
-        self, names: list[str], cids: list[str], votes: list[int]
+        self, names: list[str], imageCids: list[str], manifestoCids: list[str], votes: list[int]
     ) -> list[dict[str, Any]]:
         return [
             {
                 "id": index,
                 "name": names[index],
-                "cid": cids[index],
+                "cid": imageCids[index],
+                "manifestoCid": manifestoCids[index],
                 "votes": int(votes[index]),
             }
             for index in range(len(names))

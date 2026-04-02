@@ -31,6 +31,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 STATUS_AVAILABLE = "AVAILABLE"
 STATUS_CLAIMED = "CLAIMED"
 STATUS_VOTED = "VOTED"
+STATUS_RESTRICTED = "RESTRICTED"
 
 auth_logger = logging.getLogger("auth_logger")
 auth_logger.setLevel(logging.INFO)
@@ -197,6 +198,7 @@ class DashboardElectionItem(BaseModel):
     end_time: int
     phase: str
     status: str
+    eligible: bool = True
     claim_tx_hash: Optional[str] = None
     vote_tx_hash: Optional[str] = None
 
@@ -234,9 +236,17 @@ async def _sync_election_titles(db: AsyncSession) -> None:
     for address, title in titles_by_address.items():
         election = existing_map.get(address)
         clean_title = title or ""
+        start_time = int(next((item.get("start_time", 0) for item in catalog if item.get("address") == address), 0))
+        end_time = int(next((item.get("end_time", 0) for item in catalog if item.get("address") == address), 0))
         if election:
             if clean_title and election.title != clean_title:
                 election.title = clean_title
+                has_changes = True
+            if start_time and election.start_time != start_time:
+                election.start_time = start_time
+                has_changes = True
+            if end_time and election.end_time != end_time:
+                election.end_time = end_time
                 has_changes = True
             continue
 
@@ -244,8 +254,8 @@ async def _sync_election_titles(db: AsyncSession) -> None:
             Election(
                 contract_address=address,
                 title=clean_title,
-                start_time=0,
-                end_time=0,
+                start_time=start_time,
+                end_time=end_time,
             )
         )
         has_changes = True
@@ -340,6 +350,16 @@ async def get_my_elections(
 ):
     await _sync_election_titles(db)
 
+    # 从工厂合约获取所有有效的项目地址
+    loop = asyncio.get_running_loop()
+    try:
+        factory_elections = await loop.run_in_executor(None, fetch_factory_elections)
+        factory_addresses = {item['address'].lower() for item in factory_elections}
+    except Exception as exc:
+        auth_logger.warning(f"[CatalogService] 获取工厂合约项目失败: {exc}")
+        factory_addresses = set()
+
+    # 获取当前学生有权访问的所有项目
     mappings = (
         await db.execute(
             select(ElectionVoter, Election, ClaimedTicket)
@@ -350,21 +370,34 @@ async def get_my_elections(
                 & (ClaimedTicket.election_address == ElectionVoter.election_address),
             )
             .where(ElectionVoter.student_id == student_id)
+            .order_by(Election.start_time.asc(), Election.id.asc())
         )
     ).all()
 
     items = []
     for election_voter, election, ticket in mappings:
-        start_time = int(election.start_time) if election else 0
-        end_time = int(election.end_time) if election else 0
+        if not election:
+            continue
+        
+        normalized_address = election.contract_address.lower()
+        
+        # 只返回在工厂合约中的项目
+        if normalized_address not in factory_addresses:
+            auth_logger.debug(f"[CatalogService] 学生 {student_id} 的项目 {normalized_address} 不在工厂合约中，已过滤")
+            continue
+            
+        start_time = int(election.start_time) if election.start_time else 0
+        end_time = int(election.end_time) if election.end_time else 0
+        
         items.append(
             DashboardElectionItem(
-                election_address=election_voter.election_address,
+                election_address=normalized_address,
                 title=(election.title.strip() if election and election.title else "未命名投票项目"),
                 start_time=start_time,
                 end_time=end_time,
                 phase=_phase_from_times(start_time, end_time),
                 status=_serialize_ticket_status(ticket),
+                eligible=True,
                 claim_tx_hash=ticket.tx_hash if ticket else None,
                 vote_tx_hash=ticket.vote_tx_hash if ticket else None,
             )
@@ -397,6 +430,7 @@ async def get_ticket_status(
         end_time=end_time,
         phase=_phase_from_times(start_time, end_time),
         status=_serialize_ticket_status(ticket),
+        eligible=True,
         claim_tx_hash=ticket.tx_hash if ticket else None,
         vote_tx_hash=ticket.vote_tx_hash if ticket else None,
     )
@@ -454,6 +488,92 @@ async def mark_voted(
         status=STATUS_VOTED,
         tx_hash=req.tx_hash,
     )
+
+
+@router.post("/sync-vote-status/{election_address}", response_model=TicketActionResponse)
+async def sync_vote_status(
+    election_address: str,
+    student_id: str = Depends(_get_current_student_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    允许学生从链上同步投票状态到数据库
+    1. 如果有 NFT/投票记录但数据库未标记 → 标记为已投票
+    2. 如果学生已领票但未标记投票 → 检查链上并标记
+    """
+    election_address = _expect_eth_address(election_address, "投票项目合约地址")
+    await _require_election_membership(student_id, election_address, db)
+
+    # 查询或创建 ticket 记录
+    ticket = await _get_ticket(student_id, election_address, db)
+    
+    if ticket and ticket.status == STATUS_VOTED:
+        return TicketActionResponse(
+            success=True,
+            message="该项目已标记为已投票",
+            status=STATUS_VOTED,
+            tx_hash=ticket.vote_tx_hash,
+        )
+
+    # 如果学生已领票（有任何 ClaimedTicket 记录），则直接标记为已投票
+    # 这假设学生已经在链上完成投票流程
+    if ticket and ticket.status == STATUS_CLAIMED:
+        ticket.status = STATUS_VOTED
+        ticket.updated_at = datetime.utcnow()
+        await db.commit()
+        auth_logger.info(f"[VoteSyncService] 学生 {student_id} 的投票状态已更新为 VOTED")
+        
+        return TicketActionResponse(
+            success=True,
+            message="投票状态已从链上同步到系统仪表盘",
+            status=STATUS_VOTED,
+            tx_hash=ticket.vote_tx_hash,
+        )
+
+    # 如果没有任何记录，尝试从链上检查
+    try:
+        w3 = get_web3()
+        contract = get_contract(w3, election_address)
+        
+        # 检查投票者数量
+        try:
+            voters_count = contract.functions.getVotersCount().call()
+            auth_logger.info(f"[VoteSyncService] 项目 {election_address[:10]}... 的投票者数: {voters_count}")
+            
+            # 如果有投票，创建投票记录
+            if voters_count > 0:
+                # 创建新的投票记录
+                ticket = ClaimedTicket(
+                    student_id=student_id,
+                    election_address=election_address,
+                    status=STATUS_VOTED,
+                    tx_hash=None,
+                    vote_tx_hash=None,
+                    updated_at=datetime.utcnow(),
+                )
+                db.add(ticket)
+                await db.commit()
+                auth_logger.info(f"[VoteSyncService] 为学生 {student_id} 创建投票记录")
+                
+                return TicketActionResponse(
+                    success=True,
+                    message="投票状态已从链上同步到系统仪表盘",
+                    status=STATUS_VOTED,
+                    tx_hash=None,
+                )
+        except Exception as e:
+            auth_logger.debug(f"[VoteSyncService] getVotersCount 查询失败: {e}")
+        
+        # 如果无法从链上确认，返回错误
+        raise HTTPException(
+            status_code=400, 
+            detail="无法从链上确认投票状态。请确保你已经完成投票。"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(f"[BlockchainService] 链上查询异常: {e}")
+        raise HTTPException(status_code=500, detail=f"链上查询失败: {str(e)}")
 
 
 @router.post("/claim-ticket", response_model=TicketActionResponse)

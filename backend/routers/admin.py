@@ -470,3 +470,49 @@ async def log_security(req: LogSecurityRequest, db: AsyncSession = Depends(get_d
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/debug-data")
+async def debug_data(db: AsyncSession = Depends(get_db)):
+    """DEBUG ENDPOINT: Show all elections and ElectionVoter mappings"""
+    try:
+        # Get all elections
+        all_elections = (await db.scalars(select(Election))).all()
+        
+        # Get count of ElectionVoter records
+        total_election_voters = await db.scalar(select(func.count()).select_from(ElectionVoter))
+        
+        # Get student 2025001's assignments
+        student_2025001_elections = (await db.scalars(
+            select(ElectionVoter).where(ElectionVoter.student_id == "2025001")
+        )).all()
+        
+        # Get all unique students
+        unique_students = (await db.scalars(
+            select(ElectionVoter.student_id).distinct()
+        )).all()
+        
+        return {
+            "total_elections_in_db": len(all_elections),
+            "elections": [
+                {
+                    "contract_address": e.contract_address,
+                    "start_time": e.start_time,
+                    "end_time": e.end_time,
+                }
+                for e in all_elections
+            ],
+            "total_election_voters": total_election_voters,
+            "student_2025001_count": len(student_2025001_elections),
+            "student_2025001_elections": [
+                {
+                    "student_id": ev.student_id,
+                    "election_address": ev.election_address,
+                }
+                for ev in student_2025001_elections
+            ],
+            "total_unique_students": len(unique_students),
+            "sample_students": unique_students[:5] if unique_students else [],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"调试数据获取失败: {str(e)}")

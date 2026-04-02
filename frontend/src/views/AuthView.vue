@@ -113,91 +113,166 @@ function handleLogout() {
 .auth-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 24px;
 }
 
 .auth-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(320px, 420px);
-  gap: 20px;
+  gap: 32px;
   align-items: stretch;
+  background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.4));
+  border: none;
 }
 
 .hero-copy {
-  padding-right: 12px;
+  padding-right: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .hero-kicker {
-  margin: 0 0 10px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
-  color: #0f766e;
+  color: var(--primary);
 }
 
 .hero-copy h2 {
-  margin: 0 0 12px;
-  font-size: 34px;
-  line-height: 1.2;
+  margin: 0 0 16px;
+  font-size: 38px;
+  line-height: 1.25;
+  background: linear-gradient(135deg, #1f2937, #4f46e5);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .desc,
 .session-desc,
 .flow-card p {
   color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.7;
 }
 
 .inner-card {
   margin-bottom: 0;
-  background:
-    linear-gradient(145deg, rgba(79, 70, 229, 0.08), rgba(14, 165, 233, 0.05)),
-    #ffffff;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.85));
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .session-chip {
   display: inline-flex;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: 999px;
   background: #ecfdf5;
   color: #047857;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+  align-self: flex-start;
 }
 
 .student-line {
-  margin: 12px 0 8px;
-  font-size: 15px;
+  margin: 16px 0 12px;
+  font-size: 16px;
+  color: #111827;
 }
 
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 20px;
+  margin-top: 24px;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .form-group label {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
+  color: #374151;
 }
 
 .session-actions {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
-  margin-top: 18px;
+  margin-top: 24px;
 }
 
 .btn-ghost {
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.5);
   color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.flow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.flow-card {
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.flow-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.step-no {
+  display: inline-block;
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--primary);
+  opacity: 0.2;
+  margin-bottom: 8px;
+}
+
+.flow-card h4 {
+  font-size: 18px;
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: #1f2937;
+}
+
+.flow-card p {
+  font-size: 14px;
+  margin: 0;
+}
+
+@media (max-width: 860px) {
+  .auth-hero {
+    grid-template-columns: 1fr;
+  }
+  .flow-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
   border: 1px solid var(--border);
 }
 

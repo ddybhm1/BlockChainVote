@@ -9,6 +9,7 @@
         <router-link :to="homeTarget" class="nav-link">首页</router-link>
         <router-link v-if="auth.isAuthenticated" to="/dashboard" class="nav-link">我的投票</router-link>
         <router-link to="/results" class="nav-link">实时结果</router-link>
+        <router-link to="#" class="nav-link" title="功能开发中">公告通知</router-link>
       </div>
       <div v-else class="nav-spacer"></div>
 
@@ -16,10 +17,11 @@
         <details class="account-menu">
           <summary class="account-trigger">学号 {{ auth.studentId }}</summary>
           <div class="account-dropdown">
+            <router-link to="/dashboard" class="dropdown-link">我的投票</router-link>
+            <router-link to="/admin" class="dropdown-link">管理后台</router-link>
             <button class="dropdown-link dropdown-btn" type="button" @click="showSystemDialog = true">
               系统说明
             </button>
-            <router-link :to="homeTarget" class="dropdown-link">系统首页</router-link>
             <button class="dropdown-link dropdown-btn" type="button" @click="handleLogout">
               退出登录
             </button>
@@ -111,13 +113,13 @@ function handleLogout() {
 }
 
 .nav-inner {
-  max-width: 960px;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 0 16px;
-  height: 60px;
+  padding: 0 32px;
+  height: 64px;
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 40px;
 }
 
 .nav-brand {
@@ -130,8 +132,9 @@ function handleLogout() {
 
 .nav-links {
   display: flex;
-  gap: 8px;
+  gap: 32px;
   flex: 1;
+  align-items: center;
 }
 
 .nav-spacer {
@@ -139,21 +142,59 @@ function handleLogout() {
 }
 
 .nav-link {
-  padding: 6px 14px;
-  border-radius: 6px;
+  position: relative;
+  padding: 8px 0;
   text-decoration: none;
   font-size: 14px;
+  font-weight: 500;
   color: var(--text-secondary);
-  transition: all 0.2s;
+  transition: color 0.3s ease;
 }
+
 .nav-link:hover {
-  background: #f1f5f9;
-  color: var(--text);
+  color: var(--text-primary);
 }
+
+.nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: var(--primary);
+  border-radius: 2px 2px 0 0;
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.nav-link:hover::after {
+  opacity: 0.3;
+  transform: scaleX(1);
+}
+
 .nav-link.router-link-active {
-  background: #eef2ff;
   color: var(--primary);
   font-weight: 600;
+}
+
+.nav-link.router-link-active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+.admin-link {
+  margin-left: auto;
+  color: #fbbf24;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.admin-link:hover {
+  background: #fef3c7;
+  color: #b45309;
 }
 
 .nav-account,
@@ -170,17 +211,23 @@ function handleLogout() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 42px;
+  height: 40px;
   padding: 0 16px;
-  border-radius: 999px;
+  border-radius: 8px;
   border: 1px solid var(--border);
-  background: #f8fafc;
-  color: var(--text-secondary);
+  background: #ffffff;
+  color: var(--text-primary);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   text-decoration: none;
   cursor: pointer;
   list-style: none;
+  transition: all 0.2s ease;
+}
+
+.account-trigger:hover {
+  background: #f8fafc;
+  border-color: var(--primary);
 }
 
 .account-trigger::-webkit-details-marker {
@@ -191,6 +238,13 @@ function handleLogout() {
   background: var(--primary);
   border-color: var(--primary);
   color: #ffffff;
+  font-weight: 600;
+}
+
+.nav-login-btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(91, 33, 182, 0.15);
 }
 
 .account-dropdown {

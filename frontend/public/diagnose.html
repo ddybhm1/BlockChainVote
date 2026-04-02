@@ -1,0 +1,207 @@
+<!--
+前端诊断页面 - 测试路由和 API 连接
+在浏览器中访问此文件或在浏览器控制台运行下列代码
+-->
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>区块链投票系统 - 前端诊断</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-bottom: 20px; border-bottom: 2px solid #5b21b6; padding-bottom: 10px; }
+        .section { margin-bottom: 20px; padding: 15px; background: #f9f9f9; border-left: 4px solid #5b21b6; border-radius: 4px; }
+        .section h2 { color: #5b21b6; font-size: 16px; margin-bottom: 10px; }
+        button { background: #5b21b6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin: 5px 5px 5px 0; }
+        button:hover { background: #7c3aed; }
+        .result { margin-top: 10px; padding: 10px; background: white; border-radius: 4px; border-left: 3px solid #00b341; }
+        .result.error { border-left-color: #ff4444; }
+        .result.pending { border-left-color: #ffaa00; }
+        code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 区块链投票系统 - 前端诊断</h1>
+        
+        <div class="section">
+            <h2>API 连接测试</h2>
+            <button onclick="testLoginAPI()">测试登录 (学号: 2025003)</button>
+            <button onclick="testMyElectionsAPI()">测试获取项目列表</button>
+            <div id="apiResult"></div>
+        </div>
+
+        <div class="section">
+            <h2>路由测试</h2>
+            <button onclick="testRoutePush()">测试路由跳转</button>
+            <button onclick="testRouterState()">检查路由器状态</button>
+            <div id="routeResult"></div>
+        </div>
+
+        <div class="section">
+            <h2>浏览器存储</h2>
+            <button onclick="checkLocalStorage()">检查本地存储</button>
+            <button onclick="clearStorage()">清除所有存储</button>
+            <div id="storageResult"></div>
+        </div>
+
+        <div class="section">
+            <h2>系统信息</h2>
+            <button onclick="showSystemInfo()">显示系统信息</button>
+            <div id="systemResult"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let authToken = localStorage.getItem('auth_token');
+
+        async function testLoginAPI() {
+            const result = document.getElementById('apiResult');
+            result.innerHTML = '<div class="result pending">⏳ 正在登录...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ student_id: '2025003', password: '123456' })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    authToken = data.token;
+                    localStorage.setItem('auth_token', authToken);
+                    result.innerHTML = `
+                        <div class="result">
+                            ✅ 登录成功!<br/>
+                            学号: ${data.student_id}<br/>
+                            Token: ${authToken.substring(0, 20)}...<br/>
+                            有效期: ${data.expires_in_hours}小时
+                        </div>
+                    `;
+                } else {
+                    result.innerHTML = `<div class="result error">❌ 登录失败: ${data.detail || '未知错误'}</div>`;
+                }
+            } catch (error) {
+                result.innerHTML = `<div class="result error">❌ 连接失败: ${error.message}</div>`;
+            }
+        }
+
+        async function testMyElectionsAPI() {
+            const result = document.getElementById('apiResult');
+            
+            if (!authToken) {
+                result.innerHTML = '<div class="result error">❌ 未登录，请先点击"测试登录"</div>';
+                return;
+            }
+            
+            result.innerHTML = '<div class="result pending">⏳ 正在获取项目列表...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/my-elections`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                
+                const data = await response.json();
+                
+                if (Array.isArray(data)) {
+                    result.innerHTML = `
+                        <div class="result">
+                            ✅ 获取成功!<br/>
+                            项目数: ${data.length}<br/>
+                            ${data.map(item => `
+                                <div style="margin-top: 10px; padding: 10px; background: #f0f0f0;">
+                                    <strong>${item.title}</strong><br/>
+                                    地址: ${item.election_address.substring(0, 10)}...<br/>
+                                    状态: ${item.status} | 阶段: ${item.phase}
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else {
+                    result.innerHTML = `<div class="result error">❌ 返回格式错误</div>`;
+                }
+            } catch (error) {
+                result.innerHTML = `<div class="result error">❌ 连接失败: ${error.message}</div>`;
+            }
+        }
+
+        function testRoutePush() {
+            const result = document.getElementById('routeResult');
+            const address = '0x7d1a34a4925a7c24c16d76fbf115376435794128';
+            
+            result.innerHTML = `
+                <div class="result pending">
+                    ⏳ 测试路由跳转...<br/>
+                    将在 3 秒后跳转到项目详情页<br/>
+                    <code>路径: /dashboard/elections/${address}</code>
+                </div>
+            `;
+            
+            setTimeout(() => {
+                window.location.href = `http://localhost:5174/dashboard/elections/${address}`;
+            }, 3000);
+        }
+
+        function testRouterState() {
+            const result = document.getElementById('routeResult');
+            const currentUrl = window.location.href;
+            
+            result.innerHTML = `
+                <div class="result">
+                    📍 当前页面信息<br/>
+                    URL: ${currentUrl}<br/>
+                    Host: ${window.location.host}<br/>
+                    Path: ${window.location.pathname}
+                </div>
+            `;
+        }
+
+        function checkLocalStorage() {
+            const result = document.getElementById('storageResult');
+            const data = { ...localStorage };
+            
+            result.innerHTML = `
+                <div class="result">
+                    💾 本地存储内容:<br/>
+                    ${Object.keys(data).length > 0 ? 
+                        Object.keys(data).map(key => `<code>${key}: ${data[key].substring(0, 20)}...</code><br/>`).join('') :
+                        '(空)'
+                    }
+                </div>
+            `;
+        }
+
+        function clearStorage() {
+            localStorage.clear();
+            sessionStorage.clear();
+            document.getElementById('storageResult').innerHTML = '<div class="result">✅ 已清除所有存储</div>';
+        }
+
+        function showSystemInfo() {
+            const result = document.getElementById('systemResult');
+            
+            result.innerHTML = `
+                <div class="result">
+                    🖥️ 系统信息<br/>
+                    浏览器: ${navigator.userAgent.substring(0, 50)}...<br/>
+                    语言: ${navigator.language}<br/>
+                    在线: ${navigator.onLine ? '✅ 是' : '❌ 否'}<br/>
+                    API 服务: ${API_BASE}
+                </div>
+            `;
+        }
+
+        // 页面加载时的自动诊断
+        window.addEventListener('load', () => {
+            console.log('🔧 前端诊断已收集，使用上方按钮进行测试');
+            console.log('所有操作均为只读和非破坏性，可安全测试');
+        });
+    </script>
+</body>
+</html>

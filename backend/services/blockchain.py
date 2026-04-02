@@ -83,15 +83,33 @@ def fetch_factory_elections():
         return []
 
     addrs, titles, creators, created_ats = factory.functions.getAllElections().call()
-    return [
-        {
-            "address": addrs[index].lower(),
-            "title": (titles[index] or "").strip(),
-            "creator": creators[index],
-            "created_at": int(created_ats[index]),
-        }
-        for index in range(len(addrs))
-    ]
+    items = []
+    for index in range(len(addrs)):
+        address = addrs[index].lower()
+        start_time = 0
+        end_time = 0
+
+        try:
+            election_contract = get_contract(w3, address)
+            start_time = int(election_contract.functions.votingStartTime().call())
+            end_time = int(election_contract.functions.votingEndTime().call())
+        except Exception:
+            # Keep the catalog usable even if some legacy contracts cannot provide timing info.
+            start_time = 0
+            end_time = 0
+
+        items.append(
+            {
+                "address": address,
+                "title": (titles[index] or "").strip(),
+                "creator": creators[index],
+                "created_at": int(created_ats[index]),
+                "start_time": start_time,
+                "end_time": end_time,
+            }
+        )
+
+    return items
 
 
 async def authorize_voter_on_chain(wallet_address: str, contract_address: str) -> str:
@@ -106,9 +124,9 @@ async def authorize_voter_on_chain(wallet_address: str, contract_address: str) -
     tx = contract.functions.authorizeVoter(checksum_addr).build_transaction(
         {
             "from": admin_account.address,
-            "nonce": w3.eth.get_transaction_count(admin_account.address),
-            "gas": 100000,
-            "gasPrice": w3.eth.gas_price,
+            "nonce": w3.eth.get_transaction_count(admin_account.address, "pending"),
+            "gas": 150000,
+            "gasPrice": int(w3.eth.gas_price * 1.2),
         }
     )
 

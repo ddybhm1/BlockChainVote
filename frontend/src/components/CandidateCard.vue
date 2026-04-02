@@ -19,7 +19,11 @@
       </div>
     </div>
 
-    <p v-if="manifesto" class="manifesto">{{ manifesto }}</p>
+    <div v-if="manifesto" class="manifesto">
+      <a :href="manifesto" target="_blank" class="cid-link" title="查看竞选宣言资料">
+        📄 查看竞选宣言
+      </a>
+    </div>
 
     <div class="candidate-actions">
       <template v-if="!votingEnded">

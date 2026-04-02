@@ -9,6 +9,7 @@ module.exports = {
         enabled: true,
         runs: 50,
       },
+      viaIR: true,
     },
   },
   networks: {
@@ -22,5 +23,8 @@ module.exports = {
     localhost: {
       url: "http://127.0.0.1:8545",
     },
+  },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
   },
 };

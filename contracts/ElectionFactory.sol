@@ -38,7 +38,7 @@ contract ElectionFactory {
     function createElection(string calldata _title) external onlyOwner returns (address) {
         require(bytes(_title).length > 0, "Empty title");
 
-        VotingSystem election = new VotingSystem(msg.sender);
+        VotingSystem election = new VotingSystem(msg.sender, _title);
         address addr = address(election);
 
         elections.push(ElectionInfo({

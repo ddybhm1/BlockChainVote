@@ -27,6 +27,12 @@ const routes = [
     component: () => import("../views/VoteView.vue"),
   },
   {
+    path: "/dashboard/elections/:electionAddress",
+    name: "DashboardElection",
+    meta: { requiresAuth: true },
+    component: () => import("../views/ElectionDetailView.vue"),
+  },
+  {
     path: "/results",
     name: "Results",
     component: () => import("../views/ResultsView.vue"),

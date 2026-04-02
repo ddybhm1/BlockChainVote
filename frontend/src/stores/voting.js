@@ -13,22 +13,27 @@ function decodeBase64Utf8(value) {
 function parseTokenMetadata(tokenUri) {
   if (!tokenUri) return null;
 
+  let metadata = null;
   if (tokenUri.startsWith("data:application/json;base64,")) {
     const encoded = tokenUri.slice("data:application/json;base64,".length);
-    return JSON.parse(decodeBase64Utf8(encoded));
-  }
-
-  if (tokenUri.startsWith("data:application/json;utf8,")) {
+    metadata = JSON.parse(decodeBase64Utf8(encoded));
+  } else if (tokenUri.startsWith("data:application/json;utf8,")) {
     const encoded = tokenUri.slice("data:application/json;utf8,".length);
-    return JSON.parse(decodeURIComponent(encoded));
+    metadata = JSON.parse(decodeURIComponent(encoded));
+  } else {
+    metadata = {
+      name: "Vote Badge",
+      description: "",
+      image: "",
+      external_url: tokenUri,
+    };
   }
 
-  return {
-    name: "Vote Badge",
-    description: "",
-    image: "",
-    external_url: tokenUri,
-  };
+  if (metadata && metadata.image && metadata.image.startsWith("ipfs://")) {
+    metadata.image = `${IPFS_GATEWAY}${metadata.image.replace("ipfs://", "")}`;
+  }
+
+  return metadata;
 }
 
 export const useVotingStore = defineStore("voting", () => {
@@ -153,30 +158,17 @@ export const useVotingStore = defineStore("voting", () => {
       startTime.value = Number(chainStartTime);
       endTime.value = Number(chainEndTime);
 
-      const [names, cids, votes] = allCandidates;
+      const [names, imageCids, manifestoCids, votes] = allCandidates;
       const list = [];
 
       for (let i = 0; i < names.length; i += 1) {
         const item = {
           name: names[i],
-          cid: cids[i],
+          cid: imageCids[i],
           votes: Number(votes[i]),
-          photoUrl: "",
-          manifesto: "",
+          photoUrl: imageCids[i] ? `${IPFS_GATEWAY}${imageCids[i]}` : "",
+          manifesto: manifestoCids[i] ? `${IPFS_GATEWAY}${manifestoCids[i]}` : ""
         };
-
-        if (cids[i]) {
-          try {
-            const res = await fetch(`${IPFS_GATEWAY}${cids[i]}`);
-            if (res.ok) {
-              const data = await res.json();
-              item.photoUrl = data.photo ? `${IPFS_GATEWAY}${data.photo}` : "";
-              item.manifesto = data.manifesto || "";
-            }
-          } catch {
-            // IPFS failures should not block the ballot view.
-          }
-        }
 
         list.push(item);
       }
@@ -223,18 +215,19 @@ export const useVotingStore = defineStore("voting", () => {
       }
 
       const tokenId = Number(await contract.badgeTokenOf(holderAddress));
-      const [tokenUri, badgeName, badgeDescription] = await Promise.all([
-        contract.tokenURI(tokenId),
-        contract.badgeDisplayName(),
-        contract.badgeDescription(),
-      ]);
+      let tokenUri = "";
+      try {
+        tokenUri = await contract.tokenURI(tokenId);
+      } catch (e) {
+        console.warn("tokenURI not available for badge", e);
+      }
 
       const metadata = parseTokenMetadata(tokenUri) || {};
       badge.value = {
         tokenId,
         tokenUri,
-        name: metadata.name || badgeName,
-        description: metadata.description || badgeDescription,
+        name: metadata.name || "魂绑定徽章",
+        description: metadata.description || "选举项目的投票证明",
         image: metadata.image || "",
         attributes: metadata.attributes || [],
       };

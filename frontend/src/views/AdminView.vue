@@ -4,42 +4,13 @@
       <h2>⚙️ 管理员面板</h2>
       <p class="desc">基于工厂模式：创建独立投票项目，每个项目拥有独立合约。</p>
 
-      <!-- ==================== 钱包连接区域 ==================== -->
-      <div class="wallet-section">
-        <template v-if="!wallet.address">
-          <div class="alert alert-info">
-            <p>👛 <strong>需要连接钱包</strong></p>
-            <p style="margin: 8px 0 0 0; font-size: 13px;">
-              请连接您的 MetaMask 钱包来管理投票项目。只有工厂合约的拥有者才可以执行管理操作。
-            </p>
-            <button class="btn btn-primary" @click="wallet.connect()" :disabled="wallet.loading" style="margin-top: 12px;">
-              {{ wallet.loading ? '连接中...' : '🦊 连接 MetaMask 钱包' }}
-            </button>
-          </div>
-        </template>
-        <template v-else>
-          <div :class="['wallet-info', { 'is-owner': wallet.isFactoryOwner }]">
-            <div class="wallet-header">
-              <span class="wallet-badge">
-                <span v-if="wallet.isFactoryOwner" class="badge-owner">👑 工厂拥有者</span>
-                <span v-else class="badge-error">❌ 非拥有者</span>
-              </span>
-              <span class="wallet-address" :title="wallet.address">
-                {{ wallet.address.slice(0, 6) }}...{{ wallet.address.slice(-4) }}
-              </span>
-            </div>
-            <div v-if="!wallet.isFactoryOwner" class="alert alert-error">
-              当前钱包地址不是工厂合约的拥有者，无法执行管理操作。请切换到拥有者账户。
-            </div>
-            <div v-else class="alert alert-success">
-              ✓ 您是工厂合约的拥有者，可以创建和管理投票项目。
-            </div>
-            <button class="btn btn-secondary" @click="wallet.disconnect()" style="margin-top: 8px;">
-              断开钱包
-            </button>
-          </div>
-        </template>
-      </div>
+      <AdminAccessPanel
+        :wallet-address="wallet.address"
+        :wallet-loading="wallet.loading"
+        :is-factory-owner="wallet.isFactoryOwner"
+        @connect="wallet.connect()"
+        @disconnect="wallet.disconnect()"
+      />
 
       <template v-if="wallet.address && wallet.isFactoryOwner">
         <!-- 全局消息 -->
@@ -47,47 +18,15 @@
           {{ globalMsg }}
         </div>
 
-        <!-- ==================== 创建投票项目 ==================== -->
-        <div class="section">
-          <h3>🏭 创建新投票项目</h3>
-          <div class="create-row">
-            <input
-              class="input-field"
-              v-model="newTitle"
-              placeholder="请输入投票项目名称"
-              style="flex:1"
-            />
-            <button
-              class="btn btn-primary"
-              :disabled="creating || !newTitle.trim()"
-              @click="handleCreate"
-            >
-              {{ creating ? '创建中...(等待链上确认)' : '创建项目' }}
-            </button>
-          </div>
-        </div>
-
-        <!-- ==================== 项目列表 ==================== -->
-        <div class="section">
-          <h3>📁 我的投票项目</h3>
-          <div v-if="!myElections.length" class="alert alert-info">
-            暂无投票项目。请先创建一个新项目。
-          </div>
-          <div v-else class="election-list">
-            <div
-              v-for="el in myElections"
-              :key="el.address"
-              :class="['election-item', { active: selectedAddr === el.address }]"
-              @click="handleSelect(el.address)"
-            >
-              <div class="el-title">{{ el.title }}</div>
-              <div class="el-meta">
-                <span class="el-addr" :title="el.address">{{ el.address.slice(0, 10) }}...{{ el.address.slice(-6) }}</span>
-                <span class="el-time">{{ formatTime(el.createdAt) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AdminProjectSidebar
+          :title="newTitle"
+          :creating="creating"
+          :elections="myElections"
+          :selected-addr="selectedAddr"
+          @update:title="newTitle = $event"
+          @create="handleCreate"
+          @select="handleSelect"
+        />
 
         <!-- ==================== 选中项目操作面板 ==================== -->
         <template v-if="selectedAddr">
@@ -115,81 +54,13 @@
               {{ message }}
             </div>
 
-            <!-- 批量添加候选人 -->
-            <div class="section">
-              <h3>📋 批量添加投票项目</h3>
-              <template v-if="status.started">
-                <div class="alert alert-info">
-                  投票已开始，无法添加候选人。如需重新配置，请创建新项目。
-                </div>
-              </template>
-              <template v-else>
-                <div class="batch-list">
-                  <div v-for="(item, idx) in batchItems" :key="idx" class="batch-row">
-                    <input
-                      class="input-field"
-                      v-model="item.name"
-                      placeholder="候选人名称"
-                    />
-                    <div class="cid-input-group">
-                      <input
-                        class="input-field"
-                        v-model="item.cid"
-                        :placeholder="item.uploading ? '上传中...' : 'IPFS CID 或点右侧上传'"
-                        :disabled="item.uploading"
-                      />
-                      <label class="btn-icon btn-upload" :title="item.uploading ? '上传中...' : '上传文件到 IPFS'">
-                        <span v-if="item.uploading" class="spinner"></span>
-                        <span v-else>📁</span>
-                        <input
-                          type="file"
-                          class="file-hidden"
-                          @change="handleFileUpload($event, idx)"
-                          :disabled="item.uploading"
-                        />
-                      </label>
-                    </div>
-                    <button
-                      type="button"
-                      class="btn-icon btn-remove"
-                      @click="removeItem(idx)"
-                      :disabled="batchItems.length <= 1"
-                      title="删除"
-                    >✕</button>
-                  </div>
-                </div>
-                <div class="batch-actions">
-                  <button type="button" class="btn btn-secondary" @click="addItem">
-                    + 新增一行
-                  </button>
-                  <button
-                    class="btn btn-primary"
-                    :disabled="submitting || !hasValidItems"
-                    @click="handleBatchAdd"
-                  >
-                    {{ submitting ? '提交中...(等待链上确认)' : `提交 ${validCount} 个候选人` }}
-                  </button>
-                </div>
-              </template>
-            </div>
-
-            <!-- 已有候选人列表 -->
-            <div v-if="candidates.length" class="section">
-              <h3>已添加的候选人</h3>
-              <table class="candidate-table">
-                <thead>
-                  <tr><th>ID</th><th>名称</th><th>CID</th><th>得票</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(c, i) in candidates" :key="i">
-                    <td>{{ i }}</td>
-                    <td>{{ c.name }}</td>
-                    <td class="cid-cell">{{ c.cid }}</td>
-                    <td>{{ c.votes }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <AdminCandidateManager
+              :status-started="status.started"
+              :submitting="submitting"
+              :candidates="candidates"
+              :reset-key="candidateResetKey"
+              @submit="handleBatchAdd"
+            />
 
             <!-- 投票控制 -->
             <div class="section control-section">
@@ -218,155 +89,26 @@
               </div>
             </div>
 
-            <!-- 选民管理 -->
-            <div class="section voter-management">
-              <div class="section-header-row">
-                <h3>👤 投票人员管理</h3>
-                <div class="header-actions">
-                  <label class="btn btn-excel" :class="{ 'btn-loading': voterSubmitting }" title="支持 .xlsx 格式，需包含“学号”和“初始密码”列">
-                    <span v-if="voterSubmitting" class="spinner-small"></span>
-                    <span v-else>📥</span>
-                    Excel 一键导入
-                    <input type="file" class="file-hidden" accept=".xlsx, .xls" @change="handleExcelImport" :disabled="voterSubmitting" />
-                  </label>
-                </div>
-              </div>
-              <div class="voter-stats" v-if="voterStats.total >= 0">
-                已注册：<strong>{{ voterStats.total }}</strong> 人 ｜
-                已领票（本项目）：<strong>{{ voterStats.claimed }}</strong> 人
-              </div>
+            <AdminVoterManager
+              :submitting="voterSubmitting"
+              :message="voterMessage"
+              :message-ok="voterMessageOk"
+              :voter-stats="voterStats"
+              :reset-key="voterResetKey"
+              @submit="handleBatchRegister"
+              @import-excel="handleExcelImport"
+            />
 
-              <div class="batch-list">
-                <div class="batch-header">
-                  <span class="header-label">学号</span>
-                  <span class="header-label">密码</span>
-                  <span style="width:32px"></span>
-                </div>
-                <div v-for="(v, idx) in voterItems" :key="idx" class="batch-row">
-                  <input
-                    class="input-field"
-                    v-model="v.studentId"
-                    placeholder="学号"
-                  />
-                  <input
-                    class="input-field"
-                    v-model="v.password"
-                    :placeholder="'密码'"
-                  />
-                  <button
-                    type="button"
-                    class="btn-icon btn-remove"
-                    @click="removeVoter(idx)"
-                    :disabled="voterItems.length <= 1"
-                    title="删除"
-                  >✕</button>
-                </div>
-              </div>
-              <div class="batch-actions">
-                <button type="button" class="btn btn-secondary" @click="addVoter">
-                  + 新增一行
-                </button>
-                <button
-                  class="btn btn-primary"
-                  :disabled="voterSubmitting || !hasValidVoters"
-                  @click="handleBatchRegister"
-                >
-                  {{ voterSubmitting ? '注册中...' : `注册 ${validVoterCount} 个选民` }}
-                </button>
-              </div>
-              <div v-if="voterMessage" :class="['alert', voterMessageOk ? 'alert-success' : 'alert-error']" style="margin-top:12px">
-                {{ voterMessage }}
-              </div>
-            </div>
-
-            <!-- 财务与安全监控 -->
-            <div class="section">
-              <h3>系统监控日志看板</h3>
-              
-              <!-- 交易日志 -->
-              <div class="subsection">
-                <h4>📝 交易日志 (Gas 费用记录)</h4>
-                <div class="log-controls">
-                  <div class="log-stats">
-                    总交易：<strong>{{ transactionLogs.length }}</strong> | 
-                    平均 Gas：<strong>{{ avgGasUsed }}</strong>
-                  </div>
-                  <button class="btn btn-secondary" @click="loadTransactionLogs" :disabled="loadingTxLogs">
-                    {{ loadingTxLogs ? '加载中...' : '刷新日志' }}
-                  </button>
-                </div>
-                <div v-if="transactionLogs.length === 0" class="alert alert-info">
-                  暂无交易日志
-                </div>
-                <div v-else class="table-container">
-                  <table class="logs-table">
-                    <thead>
-                      <tr>
-                        <th>操作类型</th>
-                        <th>Gas 消耗</th>
-                        <th>总费用 (Wei)</th>
-                        <th>交易哈希</th>
-                        <th>状态</th>
-                        <th>时间</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="log in transactionLogs.slice(0, 15)" :key="log.id">
-                        <td><strong>{{ log.operation_type }}</strong></td>
-                        <td>{{ log.gas_used || '-' }}</td>
-                        <td class="tx-cost" :title="log.total_cost">{{ formatWei(log.total_cost) }}</td>
-                        <td class="tx-hash">
-                          <a v-if="log.tx_hash" :href="'https://sepolia.etherscan.io/tx/' + log.tx_hash" target="_blank">
-                            {{ log.tx_hash.slice(0, 10) }}...
-                          </a>
-                          <span v-else>-</span>
-                        </td>
-                        <td><span :class="['status-badge', 'status-' + log.status]">{{ log.status }}</span></td>
-                        <td class="time-cell">{{ formatTime(log.created_at) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <!-- 安全日志 -->
-              <div class="subsection">
-                <h4>🔒 安全拦截日志</h4>
-                <div class="log-controls">
-                  <span class="log-stats">
-                    总事件：<strong>{{ securityLogStats.total }}</strong> |
-                    警告：<strong>{{ securityLogStats.warning }}</strong> |
-                    严重：<strong>{{ securityLogStats.critical }}</strong>
-                  </span>
-                  <button class="btn btn-secondary" @click="loadSecurityLogs" :disabled="loadingSecLogs">
-                    {{ loadingSecLogs ? '加载中...' : '刷新日志' }}
-                  </button>
-                </div>
-                <div v-if="securityLogs.length === 0" class="alert alert-info">
-                  暂无安全事件
-                </div>
-                <table v-else class="logs-table">
-                  <thead>
-                    <tr>
-                      <th>事件类型</th>
-                      <th>学号/地址</th>
-                      <th>详情</th>
-                      <th>严重程度</th>
-                      <th>时间</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="log in securityLogs.slice(0, 10)" :key="log.id" :class="'severity-' + log.severity">
-                      <td><strong>{{ log.event_type }}</strong></td>
-                      <td>{{ log.student_id || '-' }}</td>
-                      <td class="details-cell">{{ log.details }}</td>
-                      <td><span :class="['severity-badge', 'severity-' + log.severity]">{{ log.severity }}</span></td>
-                      <td class="time-cell">{{ formatTime(log.created_at) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <AdminLogsPanel
+              :transaction-logs="transactionLogs"
+              :security-logs="securityLogs"
+              :security-log-stats="securityLogStats"
+              :avg-gas-used="avgGasUsed"
+              :loading-tx-logs="loadingTxLogs"
+              :loading-sec-logs="loadingSecLogs"
+              @refresh-transaction-logs="loadTransactionLogs"
+              @refresh-security-logs="loadSecurityLogs"
+            />
           </div>
         </template>
       </template>
@@ -377,6 +119,11 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ethers } from "ethers";
+import AdminAccessPanel from "../components/admin/AdminAccessPanel.vue";
+import AdminCandidateManager from "../components/admin/AdminCandidateManager.vue";
+import AdminLogsPanel from "../components/admin/AdminLogsPanel.vue";
+import AdminProjectSidebar from "../components/admin/AdminProjectSidebar.vue";
+import AdminVoterManager from "../components/admin/AdminVoterManager.vue";
 import { useWalletStore } from "../stores/wallet.js";
 import { useVotingStore } from "../stores/voting.js";
 import { ELECTION_ABI } from "../services/contract.js";
@@ -384,11 +131,9 @@ import {
   registerVoter, 
   getVotersCount,
   uploadVotersExcel,
-  uploadToIPFS,
   getTransactionLogs,
   getSecurityLogs,
   logTransaction,
-  logSecurity,
   setVotingTime
 } from "../services/api.js";
 
@@ -416,49 +161,12 @@ const message = ref("");
 const messageOk = ref(false);
 const candidates = ref([]);
 const status = reactive({ started: false, ended: false, candidates: 0 });
-
-// 批量添加候选人
-const batchItems = ref([
-  { name: "", cid: "", uploading: false },
-  { name: "", cid: "", uploading: false },
-  { name: "", cid: "", uploading: false },
-]);
-
-function addItem() { batchItems.value.push({ name: "", cid: "", uploading: false }); }
-function removeItem(idx) { if (batchItems.value.length > 1) batchItems.value.splice(idx, 1); }
-
-const validItems = computed(() => batchItems.value.filter(i => i.name.trim() && i.cid.trim()));
-const validCount = computed(() => validItems.value.length);
-const hasValidItems = computed(() => validCount.value > 0);
-
-// IPFS 文件上传
-async function handleFileUpload(event, idx) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  const item = batchItems.value[idx];
-  item.uploading = true;
-  try {
-    const res = await uploadToIPFS(file);
-    item.cid = res.cid;
-  } catch (e) {
-    message.value = `文件上传失败: ${e.response?.data?.detail || e.message}`;
-    messageOk.value = false;
-  } finally {
-    item.uploading = false;
-    event.target.value = "";
-  }
-}
-
-// 选民管理
-const voterItems = ref([
-  { studentId: "", password: "" },
-  { studentId: "", password: "" },
-  { studentId: "", password: "" },
-]);
 const voterSubmitting = ref(false);
 const voterMessage = ref("");
 const voterMessageOk = ref(false);
 const voterStats = reactive({ total: -1, claimed: 0 });
+const candidateResetKey = ref(0);
+const voterResetKey = ref(0);
 
 // ==================== 监控日志 ====================
 const transactionLogs = ref([]);
@@ -475,44 +183,10 @@ const avgGasUsed = computed(() => {
   return Math.round(total / valid.length);
 });
 
-function formatWei(weiStr) {
-  if (!weiStr) return "-";
-  try {
-    const val = BigInt(weiStr);
-    if (val < 1000000000n) return `${val} Wei`;
-    return `${(Number(val) / 1e18).toFixed(6)} ETH`;
-  } catch (e) {
-    return weiStr;
-  }
-}
-
-function addVoter() { voterItems.value.push({ studentId: "", password: "" }); }
-function removeVoter(idx) { if (voterItems.value.length > 1) voterItems.value.splice(idx, 1); }
-
-const validVoters = computed(() => voterItems.value.filter(v => v.studentId.trim() && v.password.trim()));
-const validVoterCount = computed(() => validVoters.value.length);
-const hasValidVoters = computed(() => validVoterCount.value > 0);
-
 // 我创建的项目
 const myElections = computed(() =>
   voting.elections.filter(e => e.creator.toLowerCase() === wallet.address?.toLowerCase())
 );
-
-function formatTime(ts) {
-  if (!ts) return "";
-  try {
-    const numTs = Number(ts);
-    if (!isNaN(numTs)) {
-      // 若是10位级的时间戳（秒），转为毫秒
-      const ms = numTs < 10000000000 ? numTs * 1000 : numTs;
-      return new Date(ms).toLocaleString("zh-CN");
-    }
-    const date = new Date(ts);
-    return date.toLocaleString("zh-CN");
-  } catch (e) {
-    return ts;
-  }
-}
 
 function toDatetimeLocal(seconds) {
   if (!seconds) return "";
@@ -705,8 +379,7 @@ async function loadData() {
 }
 
 // ==================== 候选人操作 ====================
-async function handleBatchAdd() {
-  const items = validItems.value;
+async function handleBatchAdd(items) {
   if (!items.length) return;
   submitting.value = true;
   message.value = "";
@@ -714,12 +387,13 @@ async function handleBatchAdd() {
     const contract = await getWriteContract(selectedAddr.value);
     const names = items.map(i => i.name.trim());
     const cids = items.map(i => i.cid.trim());
+    const manifestoCids = items.map(i => i.manifestoCid.trim());
 
     let tx;
     if (items.length === 1) {
-      tx = await contract.addCandidate(names[0], cids[0]);
+      tx = await contract.addCandidate(names[0], cids[0], manifestoCids[0]);
     } else {
-      tx = await contract.addCandidatesBatch(names, cids);
+      tx = await contract.addCandidatesBatch(names, cids, manifestoCids);
     }
 
     message.value = `交易已发送（${items.length} 个候选人），等待链上确认...`;
@@ -746,96 +420,11 @@ async function handleBatchAdd() {
     });
 
     message.value = `成功添加 ${items.length} 个候选人！`;
-    batchItems.value = [{ name: "", cid: "", uploading: false }, { name: "", cid: "", uploading: false }, { name: "", cid: "", uploading: false }];
+    candidateResetKey.value += 1;
     await loadData();
     await loadTransactionLogs();
   } catch (e) {
     message.value = e.reason || e.message || "添加失败";
-    messageOk.value = false;
-  } finally {
-    submitting.value = false;
-  }
-}
-
-async function handleStartVoting() {
-  submitting.value = true;
-  message.value = "";
-  try {
-    const contract = await getWriteContract(selectedAddr.value);
-    // 转为秒级时间戳
-    const start = Math.floor(new Date(startTime.value).getTime() / 1000);
-    const end = Math.floor(new Date(endTime.value).getTime() / 1000);
-    if (!start || !end || end <= start) {
-      message.value = "请正确设置开始和截止时间";
-      messageOk.value = false;
-      submitting.value = false;
-      return;
-    }
-    const tx = await contract.startVoting(start, end);
-    message.value = "交易已发送，等待链上确认...";
-    messageOk.value = true;
-
-    await logTransaction({
-      tx_hash: tx.hash,
-      election_address: selectedAddr.value,
-      operation_type: "START_VOTING",
-      status: "pending"
-    });
-
-    const receipt = await tx.wait();
-
-    await logTransaction({
-      tx_hash: tx.hash,
-      election_address: selectedAddr.value,
-      operation_type: "START_VOTING",
-      gas_used: Number(receipt.gasUsed),
-      total_cost: receipt.fee.toString(),
-      status: "success"
-    });
-
-    message.value = "投票已开始！";
-    await loadData();
-    await loadTransactionLogs();
-  } catch (e) {
-    message.value = e.reason || e.message || "操作失败";
-    messageOk.value = false;
-  } finally {
-    submitting.value = false;
-  }
-}
-
-async function handleEndVoting() {
-  submitting.value = true;
-  message.value = "";
-  try {
-    const contract = await getWriteContract(selectedAddr.value);
-    const tx = await contract.endVoting();
-    message.value = "交易已发送，等待链上确认...";
-    messageOk.value = true;
-
-    await logTransaction({
-      tx_hash: tx.hash,
-      election_address: selectedAddr.value,
-      operation_type: "END_VOTING",
-      status: "pending"
-    });
-
-    const receipt = await tx.wait();
-
-    await logTransaction({
-      tx_hash: tx.hash,
-      election_address: selectedAddr.value,
-      operation_type: "END_VOTING",
-      gas_used: Number(receipt.gasUsed),
-      total_cost: receipt.fee.toString(),
-      status: "success"
-    });
-
-    message.value = "投票已结束！";
-    await loadData();
-    await loadTransactionLogs();
-  } catch (e) {
-    message.value = e.reason || e.message || "操作失败";
     messageOk.value = false;
   } finally {
     submitting.value = false;
@@ -853,8 +442,7 @@ async function loadVoterStats() {
   }
 }
 
-async function handleExcelImport(event) {
-  const file = event.target.files?.[0];
+async function handleExcelImport(file) {
   if (!file) return;
 
   voterSubmitting.value = true;
@@ -880,12 +468,10 @@ async function handleExcelImport(event) {
   } finally {
     voterSubmitting.value = false;
     await loadVoterStats();
-    event.target.value = ""; // 重置 input
   }
 }
 
-async function handleBatchRegister() {
-  const items = validVoters.value;
+async function handleBatchRegister(items) {
   if (!items.length) return;
 
   voterSubmitting.value = true;
@@ -908,7 +494,7 @@ async function handleBatchRegister() {
   if (failed === 0) {
     voterMessage.value = `成功注册 ${success} 个选民！`;
     voterMessageOk.value = true;
-    voterItems.value = [{ studentId: "", password: "" }, { studentId: "", password: "" }, { studentId: "", password: "" }];
+    voterResetKey.value += 1;
   } else {
     voterMessage.value = `成功 ${success} 个，失败 ${failed} 个：${errors.join("；")}`;
     voterMessageOk.value = false;
@@ -916,12 +502,6 @@ async function handleBatchRegister() {
 
   await loadVoterStats();
   voterSubmitting.value = false;
-}
-
-// ==================== 监控日志 ====================
-
-async function refreshBalance() {
-  // 此功能已移除
 }
 
 async function loadTransactionLogs() {
@@ -973,444 +553,161 @@ watch(() => wallet.address, async () => {
 </script>
 
 <style scoped>
-.admin-view h2 { margin-bottom: 8px; }
-.desc { color: var(--text-secondary); font-size: 14px; margin-bottom: 20px; }
-
-/* 钱包连接区域 */
-.wallet-section {
-  margin-bottom: 24px;
-}
-.wallet-section .alert {
-  padding: 16px;
-  border-radius: 8px;
-  margin: 0;
-}
-.wallet-section .alert p {
-  margin: 0;
-}
-.wallet-info {
-  padding: 12px 16px;
-  background: #f8f9fb;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 0;
-}
-.wallet-info.is-owner {
-  background: #f0fdf4;
-  border-color: #86efac;
-}
-.wallet-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-}
-.wallet-badge {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.badge-owner {
-  display: inline-block;
-  background: #fbbf24;
-  color: #78350f;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.wallet-address {
-  font-family: monospace;
-  font-size: 13px;
-  color: var(--text);
-  flex: 1;
-  text-align: right;
-  background: rgba(255, 255, 255, 0.7);
-  padding: 4px 8px;
-  border-radius: 4px;
-}
-
-/* 创建项目 */
-.create-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-/* 项目列表 */
-.election-list {
+.admin-view {
+  max-width: 1200px;
+  margin: 0 auto;
+  animation: fadeIn 0.4s ease-out;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 24px;
 }
-.election-item {
-  padding: 12px 16px;
-  border: 2px solid var(--border, #e5e5e5);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.15s;
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-.election-item:hover { border-color: var(--primary, #4f46e5); background: #f8f7ff; }
-.election-item.active { border-color: var(--primary, #4f46e5); background: #eef2ff; }
-.el-title { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
-.el-meta { display: flex; gap: 16px; font-size: 12px; color: var(--text-secondary, #888); }
-.el-addr { font-family: monospace; }
-.selected-header { padding-bottom: 0; }
-.el-addr-full { font-size: 12px; color: var(--text-secondary); font-family: monospace; word-break: break-all; margin-top: 4px; }
+
+.card {
+  padding: 32px;
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+}
+
+.card h2 {
+  font-size: 28px;
+  margin: 0 0 12px;
+  font-weight: 800;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.desc {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin-bottom: 32px;
+}
+
+.section {
+  padding: 24px;
+  background: white;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  margin-bottom: 24px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.section:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.selected-header {
+  background: linear-gradient(to right, #f8fafc, #ffffff);
+  border-left: 4px solid var(--primary);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.selected-header h3 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.el-addr-full {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  color: #4b5563;
+  word-break: break-all;
+  background: rgba(255,255,255,0.8);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
 
 .status-bar {
-  padding: 12px 16px;
-  background: var(--bg-secondary, #f5f5f5);
-  border-radius: 8px;
-  margin-bottom: 16px;
-  font-size: 14px;
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-.badge {
-  padding: 2px 10px;
-  border-radius: 12px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.badge-warn { background: #fff3cd; color: #856404; }
-.badge-ok { background: #d4edda; color: #155724; }
-.badge-error { background: #f8d7da; color: #721c24; }
-.section { margin-top: 24px; }
-.section h3 { margin-bottom: 12px; font-size: 16px; margin-top: 0; }
-
-.btn-excel {
-  background-color: #217346; /* Excel Green */
-  color: white;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.2s;
-  box-shadow: 0 2px 4px rgba(33, 115, 70, 0.2);
-}
-.btn-excel:hover {
-  background-color: #1a5c38;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(33, 115, 70, 0.3);
-}
-.btn-excel.btn-loading {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-.spinner-small {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-
-.section-header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  background: rgba(0, 0, 0, 0.02);
-  padding: 10px 14px;
-  border-radius: 8px;
-  border-left: 4px solid var(--primary);
-}
-
-.batch-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.batch-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.batch-num {
-  width: 24px;
-  text-align: center;
-  font-weight: 600;
-  color: var(--text-secondary, #888);
-  flex-shrink: 0;
-}
-.batch-row .input-field { flex: 1; }
-.cid-input-group {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.cid-input-group .input-field { flex: 1; }
-.btn-upload {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  background: #e8f4fd;
-  color: #0d6efd;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex-shrink: 0;
-  font-size: 14px;
-  transition: background 0.15s;
-}
-.btn-upload:hover { background: #cce5ff; }
-.file-hidden { display: none; }
-.spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid #ccc;
-  border-top-color: #0d6efd;
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-  flex-shrink: 0;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.btn-icon {
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.btn-remove { background: #f8d7da; color: #721c24; }
-.btn-remove:hover { background: #f5c6cb; }
-.btn-remove:disabled { opacity: 0.3; cursor: not-allowed; }
-.batch-actions {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-.btn-secondary {
-  padding: 10px 20px;
-  border: 1px dashed var(--border, #ccc);
-  border-radius: 8px;
-  background: transparent;
-  font-size: 14px;
-  cursor: pointer;
-  color: var(--text-secondary, #666);
-}
-.btn-secondary:hover { background: var(--bg-secondary, #f5f5f5); }
-
-.candidate-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-.candidate-table th, .candidate-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border, #e5e5e5);
-  text-align: left;
-}
-.candidate-table th { font-weight: 600; background: var(--bg-secondary, #f5f5f5); }
-.cid-cell {
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.control-section { padding-top: 8px; }
-.control-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.btn-group { display: flex; gap: 12px; }
-.btn-danger {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  background: #dc3545;
-  color: white;
-}
-.btn-danger:hover { background: #c82333; }
-.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
-.voter-stats {
-  padding: 10px 14px;
-  background: var(--bg-secondary, #f5f5f5);
-  border-radius: 8px;
-  font-size: 14px;
-  margin-bottom: 14px;
-}
-.batch-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--border, #e5e5e5);
-  margin-bottom: 6px;
-}
-.header-label {
-  flex: 1;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary, #888);
-}
-
-/* ===== 财务监控样式 ===== */
-.subsection {
-  margin-top: 20px;
+  gap: 16px;
   padding: 16px;
-  background: #f9fafb;
-  border-radius: 8px;
-  border-left: 4px solid var(--primary);
-}
-.subsection h4 {
-  margin: 0 0 12px 0;
-  font-size: 15px;
-  color: var(--text);
-}
-
-.balance-card {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 12px;
-}
-.balance-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-.balance-item:last-child {
-  border-bottom: none;
-}
-.balance-label {
-  font-size: 13px;
-  color: var(--text-secondary);
+  background: #f1f5f9;
+  border-radius: var(--radius);
+  margin-bottom: 24px;
   font-weight: 500;
 }
-.balance-value {
-  font-size: 16px;
+
+.badge {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--primary);
-  font-family: monospace;
-}
-.balance-value.low-balance {
-  color: #dc2626;
 }
 
-.log-controls {
+.badge-warn {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.badge-ok {
+  background: #dcfce3;
+  color: #047857;
+  border: 1px solid #bbf7d0;
+}
+.badge-error {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.control-section {
+  background: #fafafa;
+}
+
+.control-header h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-size: 18px;
+  color: #111827;
+  font-weight: 600;
+}
+
+.time-inputs label {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
-  padding: 8px 0;
-}
-.log-stats {
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 14px;
+  color: #4b5563;
 }
 
-.logs-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  background: white;
-  border-radius: 6px;
-  overflow: hidden;
+.time-inputs input {
+  padding: 10px 14px;
   border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s;
+  background: white;
 }
-.logs-table thead {
-  background: var(--bg-secondary, #f5f5f5);
+.time-inputs input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
-.logs-table th {
-  padding: 10px 12px;
-  text-align: left;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border);
-}
-.logs-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-}
-.logs-table tbody tr:hover {
-  background: #f9fafb;
-}
-.tx-hash {
-  font-family: monospace;
-  font-size: 12px;
-  color: var(--text-secondary);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.time-cell {
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-.details-cell {
-  max-width: 300px;
-  word-break: break-word;
+.time-inputs input:disabled {
+  background: #f3f4f6;
+  cursor: not-allowed;
 }
 
-.status-badge {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.status-success {
-  background: #d4edda;
-  color: #155724;
-}
-.status-pending {
-  background: #fff3cd;
-  color: #856404;
-}
-.status-failed {
-  background: #f8d7da;
-  color: #721c24;
-}
-
-.severity-badge {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.severity-info {
-  background: #d1ecf1;
-  color: #0c5460;
-}
-.severity-warning {
-  background: #fff3cd;
-  color: #856404;
-}
-.severity-critical {
-  background: #f8d7da;
-  color: #721c24;
-}
-
-.logs-table tbody tr.severity-critical {
-  background: #fff5f5;
+.btn-group {
+  margin-top: 20px;
+  display: flex;
+  gap: 12px;
 }
 </style>
