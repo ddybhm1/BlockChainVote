@@ -18,7 +18,7 @@ describe("VotingSystem", function () {
   beforeEach(async function () {
     [admin, voter1, voter2, voter3] = await ethers.getSigners();
     const VotingSystem = await ethers.getContractFactory("VotingSystem");
-    voting = await VotingSystem.deploy(admin.address);
+    voting = await VotingSystem.deploy(admin.address, "Test Election", "QmTestImageCid");
     await voting.waitForDeployment();
   });
 

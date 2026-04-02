@@ -1,6 +1,6 @@
 import { computed, reactive, ref, unref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { authorizeTicket, markVoteComplete } from "../services/api.js";
+import { authorizeTicket, markVoted, saveLocalVoteTxHash } from "../services/api.js";
 import { useAuthStore } from "../stores/auth.js";
 import { useVotingStore } from "../stores/voting.js";
 import { useWalletStore } from "../stores/wallet.js";
@@ -17,6 +17,7 @@ export function useElectionProjectDetail(electionAddressRef) {
 
   const authorizeLoading = ref(false);
   const detailLoading = ref(false);
+  const statusSyncing = ref(false);
   const voteTxHash = ref("");
   const voteError = ref("");
   const pageMessage = reactive({
@@ -76,6 +77,23 @@ export function useElectionProjectDetail(electionAddressRef) {
 
     await voting.checkVoterStatus(wallet.address);
     await voting.loadBadge(wallet.address);
+    await reconcileVotedStatus();
+  }
+
+  async function reconcileVotedStatus() {
+    if (statusSyncing.value) return;
+    if (!selectedDashboardItem.value || !wallet.address) return;
+    if (selectedDashboardItem.value.status === "VOTED" || !voting.hasVoted) return;
+
+    statusSyncing.value = true;
+    try {
+      await markVoted(selectedDashboardItem.value.election_address, wallet.address);
+      await auth.loadMyElections();
+    } catch (err) {
+      console.warn("链上已投票，但同步仪表盘状态失败", err);
+    } finally {
+      statusSyncing.value = false;
+    }
   }
 
   async function loadElectionData({ reloadDashboard = false } = {}) {
@@ -138,8 +156,16 @@ export function useElectionProjectDetail(electionAddressRef) {
     try {
       const txHash = await voting.castVote(candidateId);
       voteTxHash.value = txHash;
-
-      await markVoteComplete(selectedDashboardItem.value.election_address, wallet.address, txHash);
+      
+      saveLocalVoteTxHash(selectedDashboardItem.value.election_address, txHash);
+      
+      // 标记投票已完成
+      try {
+        await markVoted(selectedDashboardItem.value.election_address, wallet.address);
+      } catch (markErr) {
+        console.warn("标记投票状态失败，但投票已在链上完成:", markErr);
+      }
+      
       await loadElectionData({ reloadDashboard: true });
     } catch (err) {
       voteError.value = err.response?.data?.detail || err.message || "投票失败";

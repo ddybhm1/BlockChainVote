@@ -10,6 +10,7 @@ contract VotingSystem {
 
     address public admin;
     string public electionName; // 新增：投票项目名称
+    string public sbtImageCid;  // 新增：项目 SBT 图片 CID
     
     bool public votingStarted;
     bool public votingEnded;
@@ -43,8 +44,6 @@ contract VotingSystem {
     // 【核心新增】：将每一个铸造的 SBT Token ID 关联到对应的候选人 ID 上
     mapping(uint256 => uint256) public badgeToCandidate; 
 
-    uint256 private _nextBadgeTokenId = 1;
-
     event VoterAuthorized(address indexed voter);
     event Voted(address indexed voter, uint256 indexed candidateId);
     event CandidateAdded(uint256 indexed candidateId, string name, string imageCid, string manifestoCid);
@@ -73,10 +72,11 @@ contract VotingSystem {
         _;
     }
 
-    // 构造函数新增 _electionName
-    constructor(address _admin, string memory _electionName) {
+    // 构造函数新增 _electionName 和 _sbtImageCid
+    constructor(address _admin, string memory _electionName, string memory _sbtImageCid) {
         admin = _admin;
         electionName = _electionName;
+        sbtImageCid = _sbtImageCid;
         votingStartTime = 0;
         votingEndTime = 0;
     }
@@ -254,30 +254,18 @@ contract VotingSystem {
         return tokenId;
     }
 
-    // 动态生成 SBT 元数据。直接使用对应候选人的图片和宣言
+    // 动态生成 SBT 元数据，使用项目统一配置的 SBT 图片和名称，不显示序号
     function tokenURI(uint256 tokenId) public view returns (string memory) {
         ownerOf(tokenId);
 
-        // 找到这枚徽章所对应的候选人数据
-        uint256 candidateId = badgeToCandidate[tokenId];
-        Candidate memory c = candidates[candidateId];
-
-        // 提取候选人专属外部链接 (如不存在则为空串)
-        string memory manifestoPart = bytes(c.manifestoCid).length > 0
-            ? string(abi.encodePacked(',"external_url":"https://gateway.pinata.cloud/ipfs/', c.manifestoCid, '"'))
-            : "";
-
-        // 使用底层 abi.encodePacked 纯动态拼接，杜绝补零产生的空字节！
+        // 使用底层 abi.encodePacked 纯动态拼接
         bytes memory json = abi.encodePacked(
-            '{"name":"', electionName, ' Witness Badge #', _toString(tokenId), '",',
-            '"description":"Soulbound commemorative badge for voting in \'', electionName, '\'. Supported Candidate: ', c.name, '.",',
-            '"image":"https://gateway.pinata.cloud/ipfs/', c.imageCid, '"',
-            manifestoPart,
-            ',"attributes":[',
+            '{"name":"', electionName, '",',
+            '"description":"Soulbound commemorative badge for voting in \'', electionName, '\'.",',
+            '"image":"https://gateway.pinata.cloud/ipfs/', sbtImageCid, '",',
+            '"attributes":[',
                 '{"trait_type":"Project","value":"', electionName, '"},',
-                '{"trait_type":"Supported Candidate","value":"', c.name, '"},',
-                '{"trait_type":"Badge Type","value":"Soulbound"},',
-                '{"trait_type":"Manifesto Doc","value":"', c.manifestoCid, '"}'
+                '{"trait_type":"Badge Type","value":"Soulbound"}'
             ']}'
         );
 
@@ -297,7 +285,7 @@ contract VotingSystem {
 
     function _mintBadge(address to) internal returns (uint256 tokenId) {
         require(_badgeBalances[to] == 0, "Badge already minted");
-        tokenId = _nextBadgeTokenId++;
+        tokenId = uint256(uint160(to));
         _badgeOwners[tokenId] = to;
         _badgeBalances[to] = 1;
         _badgeTokenIds[to] = tokenId;

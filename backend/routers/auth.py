@@ -113,11 +113,18 @@ async def _verify_student_password(student_id: str, password: str, client_ip: st
     return voter
 
 
+async def _get_election_id(election_address: str, db: AsyncSession) -> int:
+    election = await db.scalar(select(Election).where(Election.contract_address == election_address))
+    if not election:
+        raise HTTPException(status_code=404, detail="无效的投票项目地址")
+    return election.id
+
 async def _require_election_membership(student_id: str, election_address: str, db: AsyncSession) -> None:
+    election_id = await _get_election_id(election_address, db)
     record = await db.scalar(
         select(ElectionVoter).where(
             ElectionVoter.student_id == student_id,
-            ElectionVoter.election_address == election_address,
+            ElectionVoter.election_id == election_id,
         )
     )
     if not record:
@@ -125,10 +132,11 @@ async def _require_election_membership(student_id: str, election_address: str, d
 
 
 async def _get_ticket(student_id: str, election_address: str, db: AsyncSession) -> Optional[ClaimedTicket]:
+    election_id = await _get_election_id(election_address, db)
     return await db.scalar(
         select(ClaimedTicket).where(
             ClaimedTicket.student_id == student_id,
-            ClaimedTicket.election_address == election_address,
+            ClaimedTicket.election_id == election_id,
         )
     )
 
@@ -174,21 +182,6 @@ class TicketActionResponse(BaseModel):
     success: bool
     message: str
     status: str
-    tx_hash: Optional[str] = None
-
-
-class MarkVotedRequest(TicketActionRequest):
-    tx_hash: str
-
-
-class LegacyClaimTicketRequest(TicketActionRequest):
-    student_id: str
-    password: str
-
-    @field_validator("student_id")
-    @classmethod
-    def validate_student_id(cls, value: str) -> str:
-        return _normalize_student_id(value)
 
 
 class DashboardElectionItem(BaseModel):
@@ -199,8 +192,6 @@ class DashboardElectionItem(BaseModel):
     phase: str
     status: str
     eligible: bool = True
-    claim_tx_hash: Optional[str] = None
-    vote_tx_hash: Optional[str] = None
 
 
 async def _sync_election_titles(db: AsyncSession) -> None:
@@ -302,11 +293,11 @@ async def _authorize_ticket(
         auth_logger.error(f"[Web3Service] 学号 {student_id} 授权地址 {masked_address} 失败：{exc}")
         raise HTTPException(status_code=500, detail=f"链上授权失败: {exc}") from exc
 
+    election_id = await _get_election_id(election_address, db)
     ticket = ClaimedTicket(
         student_id=student_id,
-        election_address=election_address,
+        election_id=election_id,
         status=STATUS_CLAIMED,
-        tx_hash=tx_hash,
         updated_at=datetime.utcnow(),
     )
     db.add(ticket)
@@ -319,7 +310,6 @@ async def _authorize_ticket(
         success=True,
         message="领票成功，请使用当前钱包地址完成投票",
         status=STATUS_CLAIMED,
-        tx_hash=tx_hash,
     )
 
 
@@ -363,11 +353,11 @@ async def get_my_elections(
     mappings = (
         await db.execute(
             select(ElectionVoter, Election, ClaimedTicket)
-            .outerjoin(Election, func.lower(Election.contract_address) == ElectionVoter.election_address)
+            .outerjoin(Election, Election.id == ElectionVoter.election_id)
             .outerjoin(
                 ClaimedTicket,
                 (ClaimedTicket.student_id == ElectionVoter.student_id)
-                & (ClaimedTicket.election_address == ElectionVoter.election_address),
+                & (ClaimedTicket.election_id == ElectionVoter.election_id),
             )
             .where(ElectionVoter.student_id == student_id)
             .order_by(Election.start_time.asc(), Election.id.asc())
@@ -398,8 +388,6 @@ async def get_my_elections(
                 phase=_phase_from_times(start_time, end_time),
                 status=_serialize_ticket_status(ticket),
                 eligible=True,
-                claim_tx_hash=ticket.tx_hash if ticket else None,
-                vote_tx_hash=ticket.vote_tx_hash if ticket else None,
             )
         )
 
@@ -431,8 +419,6 @@ async def get_ticket_status(
         phase=_phase_from_times(start_time, end_time),
         status=_serialize_ticket_status(ticket),
         eligible=True,
-        claim_tx_hash=ticket.tx_hash if ticket else None,
-        vote_tx_hash=ticket.vote_tx_hash if ticket else None,
     )
 
 
@@ -455,139 +441,57 @@ async def authorize_ticket(
 
 @router.post("/mark-voted", response_model=TicketActionResponse)
 async def mark_voted(
-    req: MarkVotedRequest,
+    req: TicketActionRequest,
+    request: Request,
     student_id: str = Depends(_get_current_student_id),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_election_membership(student_id, req.election_address, db)
-    ticket = await _get_ticket(student_id, req.election_address, db)
-    if not ticket:
-        raise HTTPException(status_code=409, detail="该项目尚未领票，无法回写投票状态")
-    if ticket.status == STATUS_VOTED:
-        return TicketActionResponse(
-            success=True,
-            message="该项目已标记为已投票",
-            status=STATUS_VOTED,
-            tx_hash=ticket.vote_tx_hash or req.tx_hash,
-        )
-
-    w3 = get_web3()
-    contract = get_contract(w3, req.election_address)
-    checksum_wallet = w3.to_checksum_address(req.wallet_address)
-    if not contract.functions.hasVoted(checksum_wallet).call():
-        raise HTTPException(status_code=400, detail="链上尚未确认该钱包完成投票")
-
-    ticket.status = STATUS_VOTED
-    ticket.vote_tx_hash = req.tx_hash
-    ticket.updated_at = datetime.utcnow()
-    await db.commit()
-
-    return TicketActionResponse(
-        success=True,
-        message="投票状态已同步到系统仪表盘",
-        status=STATUS_VOTED,
-        tx_hash=req.tx_hash,
-    )
-
-
-@router.post("/sync-vote-status/{election_address}", response_model=TicketActionResponse)
-async def sync_vote_status(
-    election_address: str,
-    student_id: str = Depends(_get_current_student_id),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    允许学生从链上同步投票状态到数据库
-    1. 如果有 NFT/投票记录但数据库未标记 → 标记为已投票
-    2. 如果学生已领票但未标记投票 → 检查链上并标记
-    """
-    election_address = _expect_eth_address(election_address, "投票项目合约地址")
-    await _require_election_membership(student_id, election_address, db)
-
-    # 查询或创建 ticket 记录
-    ticket = await _get_ticket(student_id, election_address, db)
+    """投票完成后标记票据状态为已投票"""
+    client_ip = request.client.host if request.client else "unknown_ip"
     
-    if ticket and ticket.status == STATUS_VOTED:
-        return TicketActionResponse(
-            success=True,
-            message="该项目已标记为已投票",
-            status=STATUS_VOTED,
-            tx_hash=ticket.vote_tx_hash,
-        )
-
-    # 如果学生已领票（有任何 ClaimedTicket 记录），则直接标记为已投票
-    # 这假设学生已经在链上完成投票流程
-    if ticket and ticket.status == STATUS_CLAIMED:
-        ticket.status = STATUS_VOTED
-        ticket.updated_at = datetime.utcnow()
-        await db.commit()
-        auth_logger.info(f"[VoteSyncService] 学生 {student_id} 的投票状态已更新为 VOTED")
-        
-        return TicketActionResponse(
-            success=True,
-            message="投票状态已从链上同步到系统仪表盘",
-            status=STATUS_VOTED,
-            tx_hash=ticket.vote_tx_hash,
-        )
-
-    # 如果没有任何记录，尝试从链上检查
     try:
-        w3 = get_web3()
-        contract = get_contract(w3, election_address)
+        election_address = _expect_eth_address(req.election_address, "投票项目合约地址")
+        wallet_address = _expect_eth_address(req.wallet_address, "钱包地址")
+        await _require_election_membership(student_id, election_address, db)
         
-        # 检查投票者数量
-        try:
-            voters_count = contract.functions.getVotersCount().call()
-            auth_logger.info(f"[VoteSyncService] 项目 {election_address[:10]}... 的投票者数: {voters_count}")
-            
-            # 如果有投票，创建投票记录
-            if voters_count > 0:
-                # 创建新的投票记录
-                ticket = ClaimedTicket(
-                    student_id=student_id,
-                    election_address=election_address,
-                    status=STATUS_VOTED,
-                    tx_hash=None,
-                    vote_tx_hash=None,
-                    updated_at=datetime.utcnow(),
-                )
-                db.add(ticket)
-                await db.commit()
-                auth_logger.info(f"[VoteSyncService] 为学生 {student_id} 创建投票记录")
-                
-                return TicketActionResponse(
-                    success=True,
-                    message="投票状态已从链上同步到系统仪表盘",
-                    status=STATUS_VOTED,
-                    tx_hash=None,
-                )
-        except Exception as e:
-            auth_logger.debug(f"[VoteSyncService] getVotersCount 查询失败: {e}")
+        ticket = await _get_ticket(student_id, election_address, db)
+        if not ticket:
+            raise HTTPException(
+                status_code=400, 
+                detail="没有找到该投票项目的票据，请先领票"
+            )
         
-        # 如果无法从链上确认，返回错误
-        raise HTTPException(
-            status_code=400, 
-            detail="无法从链上确认投票状态。请确保你已经完成投票。"
+        # 检查是否已经投过票
+        if ticket.status == STATUS_VOTED:
+            return TicketActionResponse(
+                success=True,
+                message="你已经完成过本项目的投票",
+                status=STATUS_VOTED,
+            )
+        
+        # 标记为已投票
+        ticket.status = STATUS_VOTED
+        await db.commit()
+        
+        auth_logger.info(
+            f"[TicketService] IP: {client_ip} - 学号 {student_id} "
+            f"标记投票完成: {election_address}"
         )
+        
+        return TicketActionResponse(
+            success=True,
+            message="投票状态已更新",
+            status=STATUS_VOTED,
+        )
+        
     except HTTPException:
         raise
-    except Exception as e:
-        auth_logger.error(f"[BlockchainService] 链上查询异常: {e}")
-        raise HTTPException(status_code=500, detail=f"链上查询失败: {str(e)}")
+    except Exception as exc:
+        auth_logger.error(
+            f"[TicketService] IP: {client_ip} - 学号 {student_id} "
+            f"标记投票失败: {exc}"
+        )
+        raise HTTPException(status_code=500, detail="更新投票状态失败") from exc
 
 
-@router.post("/claim-ticket", response_model=TicketActionResponse)
-async def claim_ticket_legacy(
-    req: LegacyClaimTicketRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    client_ip = request.client.host if request.client else "unknown_ip"
-    await _verify_student_password(req.student_id, req.password, client_ip, db)
-    return await _authorize_ticket(
-        student_id=req.student_id,
-        wallet_address=req.wallet_address,
-        election_address=req.election_address,
-        client_ip=client_ip,
-        db=db,
-    )
+

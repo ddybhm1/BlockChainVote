@@ -35,10 +35,10 @@ contract ElectionFactory {
     }
 
     /// @notice 创建新的投票项目（仅 owner 可调用）
-    function createElection(string calldata _title) external onlyOwner returns (address) {
+    function createElection(string calldata _title, string calldata _sbtImageCid) external onlyOwner returns (address) {
         require(bytes(_title).length > 0, "Empty title");
-
-        VotingSystem election = new VotingSystem(msg.sender, _title);
+        
+        VotingSystem election = new VotingSystem(msg.sender, _title, _sbtImageCid);
         address addr = address(election);
 
         elections.push(ElectionInfo({

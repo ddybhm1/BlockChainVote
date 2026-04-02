@@ -168,6 +168,11 @@ async def set_voting_time(req: SetVotingTimeRequest, db: AsyncSession = Depends(
 @router.post("/register-voter", response_model=RegisterVoterResponse)
 async def register_voter(req: RegisterVoterRequest, db: AsyncSession = Depends(get_db)):
     student_id = req.student_id.strip()
+    election_address = req.election_address.lower()
+
+    election = await db.scalar(select(Election).where(Election.contract_address == election_address))
+    if not election:
+        raise HTTPException(status_code=404, detail="无效的投票项目")
 
     voter = await db.scalar(select(Voter).where(Voter.student_id == student_id))
     if not voter:
@@ -185,13 +190,13 @@ async def register_voter(req: RegisterVoterRequest, db: AsyncSession = Depends(g
     existing_mapping = await db.scalar(
         select(ElectionVoter).where(
             ElectionVoter.student_id == student_id,
-            ElectionVoter.election_address == req.election_address,
+            ElectionVoter.election_id == election.id,
         )
     )
     if existing_mapping:
         raise HTTPException(status_code=409, detail="该学号已注册到当前投票项目")
 
-    db.add(ElectionVoter(student_id=student_id, election_address=req.election_address))
+    db.add(ElectionVoter(student_id=student_id, election_id=election.id))
     await db.commit()
 
     return RegisterVoterResponse(success=True, message="选民注册成功（已加入当前项目白名单）")
@@ -206,6 +211,10 @@ async def upload_voters_excel(
     if not re.match(r"^0x[0-9a-fA-F]{40}$", election_address):
         raise HTTPException(status_code=400, detail="无效的投票项目合约地址格式")
     election_address = election_address.lower()
+
+    election = await db.scalar(select(Election).where(Election.contract_address == election_address))
+    if not election:
+        raise HTTPException(status_code=404, detail="无效的投票项目")
 
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="请上传 .xlsx 格式的 Excel 文件")
@@ -260,14 +269,14 @@ async def upload_voters_excel(
         existing_mapping = await db.scalar(
             select(ElectionVoter).where(
                 ElectionVoter.student_id == student_id,
-                ElectionVoter.election_address == election_address,
+                ElectionVoter.election_id == election.id,
             )
         )
         if existing_mapping:
             duplicate_count += 1
             continue
 
-        db.add(ElectionVoter(student_id=student_id, election_address=election_address))
+        db.add(ElectionVoter(student_id=student_id, election_id=election.id))
         success_count += 1
 
     try:
@@ -289,9 +298,13 @@ async def get_voters_count(
     db: AsyncSession = Depends(get_db),
 ):
     if election_address:
-        election_address = election_address.lower()
-        total = await db.scalar(select(func.count()).select_from(ElectionVoter).where(ElectionVoter.election_address == election_address))
-        claimed = await db.scalar(select(func.count()).select_from(ClaimedTicket).where(ClaimedTicket.election_address == election_address))
+        election_address = election_address.strip().lower()
+        election = await db.scalar(select(Election).where(Election.contract_address == election_address))
+        if not election:
+            return {"total_registered": 0, "total_claimed": 0}
+        
+        total = await db.scalar(select(func.count()).select_from(ElectionVoter).where(ElectionVoter.election_id == election.id))
+        claimed = await db.scalar(select(func.count()).select_from(ClaimedTicket).where(ClaimedTicket.election_id == election.id))
     else:
         total = await db.scalar(select(func.count()).select_from(Voter))
         claimed = await db.scalar(select(func.count()).select_from(ClaimedTicket))

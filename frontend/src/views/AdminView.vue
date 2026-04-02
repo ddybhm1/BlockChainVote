@@ -1,125 +1,209 @@
 <template>
-  <div class="admin-view">
-    <div class="card">
-      <h2>⚙️ 管理员面板</h2>
-      <p class="desc">基于工厂模式：创建独立投票项目，每个项目拥有独立合约。</p>
+  <el-container class="admin-layout">
+    <!-- Sidebar -->
+    <el-aside width="250px" class="admin-sidebar">
+      <div class="sidebar-logo">
+        <el-icon :size="24" color="#fff" style="margin-right: 8px"><Monitor /></el-icon>
+        <span style="color:#fff;font-weight:600;font-size:16px;">电子投票控制台</span>
+      </div>
+      <el-menu
+        :default-active="activeMenu"
+        class="sidebar-menu"
+        background-color="#1E222D"
+        text-color="#A3A6B0"
+        active-text-color="#fff"
+        @select="handleMenuSelect"
+      >
+        <el-menu-item index="overview">
+          <el-icon><DataLine /></el-icon>
+          <span>概览看板</span>
+        </el-menu-item>
+        <el-menu-item index="projects">
+          <el-icon><FolderOpened /></el-icon>
+          <span>项目管理</span>
+        </el-menu-item>
+        <el-menu-item index="candidates">
+          <el-icon><UserFilled /></el-icon>
+          <span>候选人管理</span>
+        </el-menu-item>
+        <el-menu-item index="voters">
+          <el-icon><Tickets /></el-icon>
+          <span>选票管理</span>
+        </el-menu-item>
+        <el-menu-item index="logs">
+          <el-icon><List /></el-icon>
+          <span>交易与安全</span>
+        </el-menu-item>
+      </el-menu>
+    </el-aside>
 
-      <AdminAccessPanel
-        :wallet-address="wallet.address"
-        :wallet-loading="wallet.loading"
-        :is-factory-owner="wallet.isFactoryOwner"
-        @connect="wallet.connect()"
-        @disconnect="wallet.disconnect()"
-      />
-
-      <template v-if="wallet.address && wallet.isFactoryOwner">
-        <!-- 全局消息 -->
-        <div v-if="globalMsg" :class="['alert', globalMsgOk ? 'alert-success' : 'alert-error']">
-          {{ globalMsg }}
+    <el-container>
+      <!-- Header -->
+      <el-header class="admin-header">
+        <div class="header-left">
+          <el-breadcrumb separator="/">
+            <el-breadcrumb-item>管理面板</el-breadcrumb-item>
+            <el-breadcrumb-item>{{ activeMenuName }}</el-breadcrumb-item>
+          </el-breadcrumb>
         </div>
+        <div class="header-right">
+          <!-- 这里去掉了多余的独立钱包连接组件，统一使用顶部的 NavBar 钱包连接 -->
+          <el-tag v-if="wallet.isFactoryOwner" type="success" effect="dark" size="large">
+            <el-icon style="margin-right: 4px"><UserFilled /></el-icon>超级管理员
+          </el-tag>
+        </div>
+      </el-header>
 
-        <AdminProjectSidebar
-          :title="newTitle"
-          :creating="creating"
-          :elections="myElections"
-          :selected-addr="selectedAddr"
-          @update:title="newTitle = $event"
-          @create="handleCreate"
-          @select="handleSelect"
-        />
+      <!-- Main Content -->
+      <el-main class="admin-main">
+        <div v-if="!wallet.address || !wallet.isFactoryOwner" class="alert alert-error">
+          <el-empty description="管理员中心仅通过钱包地址认证，请先通过顶部右上角的 Wallet Connect 连接具有管理员权限的钱包" />
+        </div>
+        <div v-else>
+          <!-- Global Message -->
+          <el-alert v-if="globalMsg" :title="globalMsg" :type="globalMsgOk ? 'success' : 'error'" show-icon style="margin-bottom: 20px" />
 
-        <!-- ==================== 选中项目操作面板 ==================== -->
-        <template v-if="selectedAddr">
-          <div class="section selected-header">
-            <h3>📋 当前项目：{{ selectedTitle }}</h3>
-            <div class="el-addr-full">合约地址：{{ selectedAddr }}</div>
+          <!-- Context Selector -->
+          <el-card shadow="hover" class="context-card" v-if="activeMenu !== 'overview'">
+             <span style="font-weight:bold;margin-right:12px;">当前管理项目</span>
+             <el-tag v-if="selectedTitle" type="primary" size="large" style="margin-right:12px;">{{ selectedTitle }}</el-tag>
+             <el-tag v-else type="info" size="large" style="margin-right:12px;">未选择</el-tag>
+             <span v-if="selectedAddr" style="font-family:monospace; color:#6b7280; font-size:13px; margin-right:12px;">{{ selectedAddr }}</span>
+             <el-tag :type="status.ended ? 'danger' : (status.started ? 'success' : 'warning')" v-if="selectedAddr">
+               {{ status.ended ? '已结束' : (status.started ? '进行中' : '未开始') }}
+             </el-tag>
+          </el-card>
+
+          <!-- 1. Overview Board -->
+          <div v-show="activeMenu === 'overview'">
+            <el-row :gutter="20">
+              <el-col :span="6">
+                <el-card shadow="hover" class="data-card">
+                  <div class="card-icon" style="background:#E1F3D8;color:#67C23A;"><el-icon><VideoPlay /></el-icon></div>
+                  <div class="card-info">
+                    <div class="label">活跃项目</div>
+                    <div class="value">{{ myElections ? myElections.length : 0 }}</div>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :span="6">
+                <el-card shadow="hover" class="data-card">
+                  <div class="card-icon" style="background:#D9ECFF;color:#409EFF;"><el-icon><User /></el-icon></div>
+                  <div class="card-info">
+                    <div class="label">注册选民总数</div>
+                    <div class="value">{{ globalVoterStats.total !== -1 ? globalVoterStats.total : '-' }}</div>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :span="6">
+                <el-card shadow="hover" class="data-card">
+                  <div class="card-icon" style="background:#FAECD8;color:#E6A23C;"><el-icon><Cpu /></el-icon></div>
+                  <div class="card-info">
+                    <div class="label">Gas 消耗总额</div>
+                    <div class="value">{{ avgGasUsed }} <span style="font-size:12px">wei</span></div>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :span="6">
+                <el-card shadow="hover" class="data-card">
+                  <div class="card-icon" style="background:#FDE2E2;color:#F56C6C;"><el-icon><WarnTriangleFilled /></el-icon></div>
+                  <div class="card-info">
+                    <div class="label">系统安全健康</div>
+                    <div class="value" :style="{color: securityLogStats.critical > 0 ? '#F56C6C' : '#67C23A'}">
+                      {{ securityLogStats.critical > 0 ? '风险' : '健康' }}
+                    </div>
+                  </div>
+                </el-card>
+              </el-col>
+            </el-row>
           </div>
 
-          <div v-if="!isAdmin" class="alert alert-error">
-            当前钱包地址不是该项目的管理员，无法操作
+          <!-- 2. Projects -->
+          <div v-show="activeMenu === 'projects'">
+            <div style="margin-bottom:20px;">
+              <AdminProjectSidebar
+                :title="newTitle"
+                :sbt-image-cid="newSbtImageCid"
+                :creating="creating"
+                :elections="myElections"
+                :selected-addr="selectedAddr"
+                @update:title="newTitle = $event"
+                @update:sbtImageCid="newSbtImageCid = $event"
+                @create="handleCreate"
+                @select="handleSelect"
+              />
+            </div>
+            
+            <el-card shadow="hover" class="section-card" v-if="selectedAddr" header="时间控制">
+              <div v-if="message" class="alert" :class="messageOk ? 'alert-success' : 'alert-error'" style="margin-bottom:12px">
+                {{ message }}
+              </div>
+              <div style="display: flex; gap: 16px; align-items: center;">
+                <el-date-picker v-model="startTime" type="datetime" placeholder="开始时间" :disabled="submitting || deployed" value-format="YYYY-MM-DDTHH:mm:ss" />
+                <span style="color:#909399">至</span>
+                <el-date-picker v-model="endTime" type="datetime" placeholder="结束时间" :disabled="submitting || deployed" value-format="YYYY-MM-DDTHH:mm:ss" />
+                <el-button type="primary" :disabled="deployed || submitting || !candidates.length || !startTime || !endTime" @click="handleSaveVotingTime">
+                   {{ submitting ? '部署中...' : (deployed ? '部署成功' : '部署') }}
+                </el-button>
+              </div>
+              <el-alert v-if="deployed" title="项目已部署" type="info" description="当前项目已部署投票窗口时间，不可更改" show-icon style="margin-top:12px;"/>
+            </el-card>
           </div>
 
-          <div v-else>
-            <!-- 投票状态 -->
-            <div class="status-bar">
-              <span>投票状态：</span>
-              <span v-if="!status.started" class="badge badge-warn">未开始</span>
-              <span v-else-if="!status.ended" class="badge badge-ok">进行中</span>
-              <span v-else class="badge badge-error">投票已经结束</span>
-              <span style="margin-left:12px">候选人数：{{ status.candidates }}</span>
-            </div>
-
-            <!-- 操作消息 -->
-            <div v-if="message" :class="['alert', messageOk ? 'alert-success' : 'alert-error']">
-              {{ message }}
-            </div>
-
-            <AdminCandidateManager
-              :status-started="status.started"
-              :submitting="submitting"
-              :candidates="candidates"
-              :reset-key="candidateResetKey"
-              @submit="handleBatchAdd"
-            />
-
-            <!-- 投票控制 -->
-            <div class="section control-section">
-              <div class="control-header">
-                <h3>投票控制</h3>
-              </div>
-              <div class="time-inputs" style="margin-bottom:12px;display:flex;gap:16px;align-items:center;">
-                <label>开始时间：
-                  <input type="datetime-local" v-model="startTime" :disabled="submitting || deployed" style="margin-left:4px;" />
-                </label>
-                <label>截止时间：
-                  <input type="datetime-local" v-model="endTime" :disabled="submitting || deployed" style="margin-left:4px;" />
-                </label>
-              </div>
-              <div v-if="deployed" class="alert alert-info" style="margin-top:0;">
-                当前项目已部署投票窗口时间，不能更改。
-              </div>
-              <div class="btn-group">
-                <button
-                  class="btn btn-primary"
-                  :disabled="deployed || submitting || !candidates.length || !startTime || !endTime"
-                  @click="handleSaveVotingTime"
-                >
-                  {{ submitting ? '部署中...' : (deployed ? '部署成功' : '部署') }}
-                </button>
-              </div>
-            </div>
-
-            <AdminVoterManager
-              :submitting="voterSubmitting"
-              :message="voterMessage"
-              :message-ok="voterMessageOk"
-              :voter-stats="voterStats"
-              :reset-key="voterResetKey"
-              @submit="handleBatchRegister"
-              @import-excel="handleExcelImport"
-            />
-
-            <AdminLogsPanel
-              :transaction-logs="transactionLogs"
-              :security-logs="securityLogs"
-              :security-log-stats="securityLogStats"
-              :avg-gas-used="avgGasUsed"
-              :loading-tx-logs="loadingTxLogs"
-              :loading-sec-logs="loadingSecLogs"
-              @refresh-transaction-logs="loadTransactionLogs"
-              @refresh-security-logs="loadSecurityLogs"
-            />
+          <!-- 3. Candidates -->
+          <div v-show="activeMenu === 'candidates'">
+            <el-card shadow="never" class="section-card" body-style="padding:0">
+              <AdminCandidateManager
+                :status-started="status.started"
+                :submitting="submitting"
+                :candidates="candidates"
+                :reset-key="candidateResetKey"
+                @submit="handleBatchAdd"
+              />
+            </el-card>
           </div>
-        </template>
-      </template>
-    </div>
-  </div>
+
+          <!-- 4. Voters -->
+          <div v-show="activeMenu === 'voters'">
+            <el-card shadow="never" class="section-card" body-style="padding:0">
+              <AdminVoterManager
+                :submitting="voterSubmitting"
+                :message="voterMessage"
+                :message-ok="voterMessageOk"
+                :voter-stats="voterStats"
+                :reset-key="voterResetKey"
+                @submit="handleBatchRegister"
+                @import-excel="handleExcelImport"
+              />
+            </el-card>
+          </div>
+
+          <!-- 5. Logs Console -->
+          <div v-show="activeMenu === 'logs'">
+            <div class="console-wrapper">
+              <AdminLogsPanel
+                :transaction-logs="transactionLogs"
+                :security-logs="securityLogs"
+                :security-log-stats="securityLogStats"
+                :avg-gas-used="avgGasUsed"
+                :loading-tx-logs="loadingTxLogs"
+                :loading-sec-logs="loadingSecLogs"
+                @refresh-transaction-logs="loadTransactionLogs"
+                @refresh-security-logs="loadSecurityLogs"
+              />
+            </div>
+          </div>
+
+        </div>
+      </el-main>
+    </el-container>
+  </el-container>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ethers } from "ethers";
-import AdminAccessPanel from "../components/admin/AdminAccessPanel.vue";
+import { Monitor, DataLine, FolderOpened, UserFilled, Tickets, List, VideoPlay, User, Cpu, WarnTriangleFilled } from '@element-plus/icons-vue';
 import AdminCandidateManager from "../components/admin/AdminCandidateManager.vue";
 import AdminLogsPanel from "../components/admin/AdminLogsPanel.vue";
 import AdminProjectSidebar from "../components/admin/AdminProjectSidebar.vue";
@@ -146,8 +230,26 @@ const deployedEndTs = ref(0);
 const wallet = useWalletStore();
 const voting = useVotingStore();
 
+// Layout state
+const activeMenu = ref('overview');
+const activeMenuName = computed(() => {
+  const map = {
+    overview: '概览看板',
+    projects: '项目管理',
+    candidates: '候选人管理',
+    voters: '选票管理',
+    logs: '交易与安全'
+  };
+  return map[activeMenu.value];
+});
+
+function handleMenuSelect(index) {
+  activeMenu.value = index;
+}
+
 // 创建项目
 const newTitle = ref("");
+const newSbtImageCid = ref("");
 const creating = ref(false);
 const globalMsg = ref("");
 const globalMsgOk = ref(false);
@@ -174,6 +276,28 @@ const securityLogs = ref([]);
 const securityLogStats = reactive({ total: 0, warning: 0, critical: 0 });
 const loadingTxLogs = ref(false);
 const loadingSecLogs = ref(false);
+
+// ==================== 全系统统计 ====================
+const globalVoterStats = reactive({ total: -1, claimed: 0 });
+
+async function loadGlobalStats() {
+  try {
+    if (myElections.value.length > 0) {
+      let totalVoters = 0;
+      for (const election of myElections.value) {
+        try {
+          const data = await getVotersCount(election.address);
+          totalVoters += (data.total_registered || 0);
+        } catch (e) {
+          console.error(`获取项目 ${election.address} 选民数失败:`, e);
+        }
+      }
+      globalVoterStats.total = totalVoters;
+    }
+  } catch (e) {
+    console.error("获取全系统统计失败:", e);
+  }
+}
 
 const avgGasUsed = computed(() => {
   if (transactionLogs.value.length === 0) return 0;
@@ -255,12 +379,12 @@ async function handleSaveVotingTime() {
 
 // ==================== 创建项目 ====================
 async function handleCreate() {
-  if (!newTitle.value.trim()) return;
+  if (!newTitle.value.trim() || !newSbtImageCid.value.trim()) return;
   creating.value = true;
   globalMsg.value = "";
   try {
     const factory = await voting.getFactoryWriteContract();
-    const tx = await factory.createElection(newTitle.value.trim());
+    const tx = await factory.createElection(newTitle.value.trim(), newSbtImageCid.value.trim());
     globalMsg.value = "交易已发送，等待链上确认...";
     globalMsgOk.value = true;
     const receipt = await tx.wait();
@@ -283,6 +407,7 @@ async function handleCreate() {
       : "项目创建成功！";
     globalMsgOk.value = true;
     newTitle.value = "";
+    newSbtImageCid.value = "";
     await voting.loadElections();
     if (newAddr) {
       handleSelect(newAddr);
@@ -366,10 +491,11 @@ async function loadData() {
       deployedEndTs.value = 0;
     }
 
-    const [names, cids, votes] = all;
+    const [names, imageCids, manifestoCids, votes] = all;
     candidates.value = names.map((n, i) => ({
       name: n,
-      cid: cids[i],
+      cid: imageCids[i],
+      manifestoCid: manifestoCids[i],
       votes: Number(votes[i]),
     }));
     status.candidates = candidates.value.length;
@@ -541,13 +667,20 @@ async function loadSecurityLogs() {
 // ==================== 生命周期 ====================
 onMounted(async () => {
   await voting.loadElections();
-  // 不再初始加载钱包余额
+  await loadGlobalStats();
 });
 
 watch(() => wallet.address, async () => {
   await voting.loadElections();
+  await loadGlobalStats();
   if (selectedAddr.value) {
     await checkAdmin();
+  }
+});
+
+watch(() => voting.elections, async () => {
+  if (activeMenu.value === 'overview') {
+    await loadGlobalStats();
   }
 });
 </script>

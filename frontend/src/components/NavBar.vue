@@ -2,16 +2,17 @@
   <nav class="navbar">
     <div class="nav-inner">
       <router-link :to="homeTarget" class="nav-brand">
-        ⛓️ 区块链投票系统
+        ⛓️ 电子投票上链存证与安全管理系统
       </router-link>
 
       <div v-if="!isAdminPage" class="nav-links">
         <router-link :to="homeTarget" class="nav-link">首页</router-link>
         <router-link v-if="auth.isAuthenticated" to="/dashboard" class="nav-link">我的投票</router-link>
         <router-link to="/results" class="nav-link">实时结果</router-link>
-        <router-link to="#" class="nav-link" title="功能开发中">公告通知</router-link>
       </div>
-      <div v-else class="nav-spacer"></div>
+      <div v-else class="nav-links" style="justify-content: flex-end;">
+        <router-link to="/results" class="nav-link">实时结果</router-link>
+      </div>
 
       <div v-if="auth.isAuthenticated && !isAdminPage" class="nav-account">
         <details class="account-menu">
@@ -91,7 +92,7 @@ const wallet = useWalletStore();
 const showLoginDialog = ref(false);
 const showSystemDialog = ref(false);
 
-const isAdminPage = computed(() => route.path === "/admin");
+const isAdminPage = computed(() => route.path?.startsWith("/admin") || false);
 const showWalletConnect = computed(() => isAdminPage.value || auth.isAuthenticated);
 const homeTarget = computed(() => (auth.isAuthenticated ? { name: "Home", query: { preview: "1" } } : { name: "Home" }));
 

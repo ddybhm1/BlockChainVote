@@ -59,13 +59,6 @@
 
       <div v-if="voteError" class="alert alert-error">{{ voteError }}</div>
 
-      <BadgeShowcaseCard
-        v-if="wallet.address && voting.badge"
-        :badge="voting.badge"
-        :wallet-address="wallet.address"
-        :title="selectedDashboardItem.title"
-      />
-
       <div v-if="detailLoading || voting.loading" class="loading-text">正在从区块链读取候选人与投票数据...</div>
 
       <div v-else id="candidate-list" class="candidates-grid">
@@ -111,7 +104,6 @@
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 import CandidateCard from "../components/CandidateCard.vue";
-import BadgeShowcaseCard from "../components/dashboard/BadgeShowcaseCard.vue";
 import ElectionDetailCard from "../components/dashboard/ElectionDetailCard.vue";
 import { useElectionProjectDetail } from "../composables/useElectionProjectDetail.js";
 

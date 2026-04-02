@@ -3,6 +3,17 @@ import axios from "axios";
 export const AUTH_TOKEN_KEY = "bcv_auth_token";
 export const AUTH_STUDENT_KEY = "bcv_student_id";
 
+// 存储各个投票项目的投票交易哈希，防止依赖后端
+const TX_HASH_PREFIX = "voted_tx_hash_";
+
+export function saveLocalVoteTxHash(electionAddress, txHash) {
+  window.localStorage.setItem(TX_HASH_PREFIX + electionAddress.toLowerCase(), txHash);
+}
+
+export function getLocalVoteTxHash(electionAddress) {
+  return window.localStorage.getItem(TX_HASH_PREFIX + electionAddress.toLowerCase());
+}
+
 const api = axios.create({
   baseURL: "/api",
   timeout: 120000,
@@ -82,11 +93,10 @@ export async function authorizeTicket(electionAddress, walletAddress) {
   return res.data;
 }
 
-export async function markVoteComplete(electionAddress, walletAddress, txHash) {
+export async function markVoted(electionAddress, walletAddress) {
   const res = await api.post("/auth/mark-voted", {
     election_address: electionAddress,
     wallet_address: walletAddress,
-    tx_hash: txHash,
   });
   return res.data;
 }

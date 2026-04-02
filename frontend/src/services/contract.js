@@ -3,7 +3,7 @@
  */
 export const FACTORY_ABI = [
   "function owner() view returns (address)",
-  "function createElection(string _title) returns (address)",
+  "function createElection(string _title, string _sbtImageCid) returns (address)",
   "function getElectionCount() view returns (uint256)",
   "function getAllElections() view returns (address[] addrs, string[] titles, address[] creators, uint256[] createdAts)",
   "function isElection(address) view returns (bool)",
