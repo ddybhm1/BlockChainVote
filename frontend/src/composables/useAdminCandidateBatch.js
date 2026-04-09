@@ -39,6 +39,12 @@ export function useAdminCandidateBatch(resetSource) {
     batchItems.value.splice(index, 1);
   }
 
+  function isPdfFile(file) {
+    const name = (file?.name || "").toLowerCase();
+    const mime = (file?.type || "").toLowerCase();
+    return name.endsWith(".pdf") || mime === "application/pdf" || mime === "application/x-pdf";
+  }
+
   async function handleFileUpload(event, index, type) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -51,8 +57,18 @@ export function useAdminCandidateBatch(resetSource) {
     
     uploadMessage.value = "";
 
+    if (type === "document" && !isPdfFile(file)) {
+      uploadMessage.value = "竞选宣言必须上传 PDF 文件";
+      uploadMessageOk.value = false;
+      item.uploadingDoc = false;
+      event.target.value = "";
+      return;
+    }
+
     try {
-      const result = await uploadToIPFS(file);
+      const result = await uploadToIPFS(file, {
+        purpose: type === "document" ? "manifesto" : "image",
+      });
       if (type === 'image') item.cid = result.cid;
       if (type === 'document') item.manifestoCid = result.cid;
       

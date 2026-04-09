@@ -14,7 +14,7 @@
           </el-tag>
         </div>
         <el-button
-          type="text"
+          link
           size="small"
           icon="DocumentCopy"
           @click.stop="$emit('copy-address', item.election_address)"
@@ -29,8 +29,8 @@
         <!-- Project Info -->
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label">🏛️ 发起方</span>
-            <span class="info-value">{{ getOrganization(item) }}</span>
+            <span class="info-label">🔗 合约地址</span>
+            <span class="info-value">{{ shortAddress(item.election_address) }}</span>
           </div>
           <div class="info-item">
             <span class="info-label">📅 截止时间</span>
@@ -94,9 +94,9 @@ defineEmits(["select", "action", "copy-address"]);
 const cta = computed(() => cardCta(props.item));
 const badgeInfo = computed(() => unifiedBadge(props.item));
 
-function getOrganization(item) {
-  if (!item.creator) return "未知组织";
-  return "学生组织";
+function shortAddress(address) {
+  if (!address) return "-";
+  return `${address.slice(0, 8)}...${address.slice(-6)}`;
 }
 
 function formatTime(timestamp) {
@@ -159,7 +159,7 @@ function getParticipationStatus(item) {
   } else if (item.status === "CLAIMED") {
     return "⏳ 已领票待投";
   } else {
-    return "📌 未开始";
+    return "📌 未参与";
   }
 }
 </script>

@@ -40,17 +40,14 @@
     <el-container>
       <!-- Header -->
       <el-header class="admin-header">
-        <div class="header-left">
+        <div class="header-left" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
           <el-breadcrumb separator="/">
             <el-breadcrumb-item>管理面板</el-breadcrumb-item>
             <el-breadcrumb-item>{{ activeMenuName }}</el-breadcrumb-item>
           </el-breadcrumb>
-        </div>
-        <div class="header-right">
-          <!-- 这里去掉了多余的独立钱包连接组件，统一使用顶部的 NavBar 钱包连接 -->
-          <el-tag v-if="wallet.isFactoryOwner" type="success" effect="dark" size="large">
-            <el-icon style="margin-right: 4px"><UserFilled /></el-icon>超级管理员
-          </el-tag>
+          <el-button v-if="activeMenu === 'projects'" type="primary" @click="$router.push('/admin/create/step1')">
+            + 发起新投票
+          </el-button>
         </div>
       </el-header>
 
@@ -65,53 +62,53 @@
 
           <!-- Context Selector -->
           <el-card shadow="hover" class="context-card" v-if="activeMenu !== 'overview'">
-             <span style="font-weight:bold;margin-right:12px;">当前管理项目</span>
-             <el-tag v-if="selectedTitle" type="primary" size="large" style="margin-right:12px;">{{ selectedTitle }}</el-tag>
-             <el-tag v-else type="info" size="large" style="margin-right:12px;">未选择</el-tag>
-             <span v-if="selectedAddr" style="font-family:monospace; color:#6b7280; font-size:13px; margin-right:12px;">{{ selectedAddr }}</span>
-             <el-tag :type="status.ended ? 'danger' : (status.started ? 'success' : 'warning')" v-if="selectedAddr">
-               {{ status.ended ? '已结束' : (status.started ? '进行中' : '未开始') }}
-             </el-tag>
+             <div style="display: flex; justify-content: space-between; align-items: center;">
+               <div style="display: flex; align-items: center;">
+                 <span style="font-weight:bold;margin-right:12px;">当前管理项目</span>
+                 <el-tag v-if="selectedTitle" type="primary" size="large" style="margin-right:12px;">{{ selectedTitle }}</el-tag>
+                 <el-tag v-else type="info" size="large" style="margin-right:12px;">未选择</el-tag>
+                 <span v-if="selectedAddr" style="font-family:monospace; color:#6b7280; font-size:13px; margin-right:12px;">{{ selectedAddr }}</span>
+                 <el-tag :type="status.ended ? 'danger' : (status.started ? 'success' : 'warning')" v-if="selectedAddr">
+                   {{ status.ended ? '已结束' : (status.started ? '进行中' : '未开始') }}
+                 </el-tag>
+               </div>
+               <!-- 搜索框 -->
+               <el-input 
+                  v-if="activeMenu === 'projects'" 
+                  v-model="globalSearchQuery" 
+                  placeholder="搜索项目名称..." 
+                  style="width: 200px;" 
+                />
+             </div>
           </el-card>
 
           <!-- 1. Overview Board -->
           <div v-show="activeMenu === 'overview'">
             <el-row :gutter="20">
-              <el-col :span="6">
-                <el-card shadow="hover" class="data-card">
+              <el-col :span="8">
+                <el-card shadow="hover" class="data-card clickable-card" @click="goToProjectsWithFilter('not_started')">
+                  <div class="card-icon" style="background:#FAECD8;color:#E6A23C;"><el-icon><FolderOpened /></el-icon></div>
+                  <div class="card-info">
+                    <div class="label">未开始的投票项目</div>
+                    <div class="value">{{ dashboardStats.notStarted }}</div>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :span="8">
+                <el-card shadow="hover" class="data-card clickable-card" @click="goToProjectsWithFilter('in_progress')">
                   <div class="card-icon" style="background:#E1F3D8;color:#67C23A;"><el-icon><VideoPlay /></el-icon></div>
                   <div class="card-info">
-                    <div class="label">活跃项目</div>
-                    <div class="value">{{ myElections ? myElections.length : 0 }}</div>
+                    <div class="label">已开始的投票项目</div>
+                    <div class="value">{{ dashboardStats.inProgress }}</div>
                   </div>
                 </el-card>
               </el-col>
-              <el-col :span="6">
-                <el-card shadow="hover" class="data-card">
-                  <div class="card-icon" style="background:#D9ECFF;color:#409EFF;"><el-icon><User /></el-icon></div>
+              <el-col :span="8">
+                <el-card shadow="hover" class="data-card clickable-card" @click="goToProjectsWithFilter('ended')">
+                  <div class="card-icon" style="background:#D9ECFF;color:#409EFF;"><el-icon><DataLine /></el-icon></div>
                   <div class="card-info">
-                    <div class="label">注册选民总数</div>
-                    <div class="value">{{ globalVoterStats.total !== -1 ? globalVoterStats.total : '-' }}</div>
-                  </div>
-                </el-card>
-              </el-col>
-              <el-col :span="6">
-                <el-card shadow="hover" class="data-card">
-                  <div class="card-icon" style="background:#FAECD8;color:#E6A23C;"><el-icon><Cpu /></el-icon></div>
-                  <div class="card-info">
-                    <div class="label">Gas 消耗总额</div>
-                    <div class="value">{{ avgGasUsed }} <span style="font-size:12px">wei</span></div>
-                  </div>
-                </el-card>
-              </el-col>
-              <el-col :span="6">
-                <el-card shadow="hover" class="data-card">
-                  <div class="card-icon" style="background:#FDE2E2;color:#F56C6C;"><el-icon><WarnTriangleFilled /></el-icon></div>
-                  <div class="card-info">
-                    <div class="label">系统安全健康</div>
-                    <div class="value" :style="{color: securityLogStats.critical > 0 ? '#F56C6C' : '#67C23A'}">
-                      {{ securityLogStats.critical > 0 ? '风险' : '健康' }}
-                    </div>
+                    <div class="label">已结束的投票项目</div>
+                    <div class="value">{{ dashboardStats.ended }}</div>
                   </div>
                 </el-card>
               </el-col>
@@ -120,34 +117,49 @@
 
           <!-- 2. Projects -->
           <div v-show="activeMenu === 'projects'">
+            <!-- 将时间控制移到紧随 Context Selector 的位置，且只在 activeMenu==='projects' 且有选中项目的情况下展示 -->
+            <el-card shadow="hover" class="section-card" v-if="selectedAddr" style="margin-bottom: 20px;">
+              <template #header>
+                <div style="font-weight: bold;">时段控制与部署</div>
+              </template>
+              
+              <div v-if="!deployed">
+                <div v-if="message" class="alert" :class="messageOk ? 'alert-success' : 'alert-error'" style="margin-bottom:12px">
+                  {{ message }}
+                </div>
+                <div style="display: flex; gap: 16px; align-items: center;">
+                  <el-date-picker v-model="startTime" type="datetime" placeholder="开票时间" :disabled="submitting" value-format="YYYY-MM-DDTHH:mm:ss" />
+                  <span style="color:#909399">至</span>
+                  <el-date-picker v-model="endTime" type="datetime" placeholder="截止时间" :disabled="submitting" value-format="YYYY-MM-DDTHH:mm:ss" />
+                  <el-button type="primary" :disabled="submitting || !startTime || !endTime" @click="handleSaveVotingTime">
+                     {{ submitting ? '部署中...' : '正式部署以启动项目' }}
+                  </el-button>
+                </div>
+                <el-alert title="请注意：项目创建后需设定时间并点击「正式部署以启动项目」，才会在到达启动时间时开放投票。部署后不可修改时间。" type="warning" show-icon style="margin-top:12px;" />
+              </div>
+              
+              <div v-else style="display: flex; gap: 16px; align-items: center;">
+                 <el-alert title="项目已部署，当前正运行在区块链上。" type="success" show-icon :closable="false" style="flex: 1;" />
+                 <el-tag size="large" type="info" style="font-size: 14px;">
+                    <el-icon style="margin-right: 4px"><Clock /></el-icon> 开票：{{ startTime.replace('T', ' ') || '未设置' }}
+                 </el-tag>
+                 <span style="color:#909399">~</span>
+                 <el-tag size="large" type="info" style="font-size: 14px;">
+                    <el-icon style="margin-right: 4px"><Clock /></el-icon> 截止：{{ endTime.replace('T', ' ') || '未设置' }}
+                 </el-tag>
+              </div>
+            </el-card>
+
             <div style="margin-bottom:20px;">
               <AdminProjectSidebar
-                :title="newTitle"
-                :sbt-image-cid="newSbtImageCid"
-                :creating="creating"
                 :elections="myElections"
                 :selected-addr="selectedAddr"
-                @update:title="newTitle = $event"
-                @update:sbtImageCid="newSbtImageCid = $event"
-                @create="handleCreate"
+                :project-statuses="projectStatuses"
+                :project-times="projectTimes"
+                :search-query="globalSearchQuery"
                 @select="handleSelect"
               />
             </div>
-            
-            <el-card shadow="hover" class="section-card" v-if="selectedAddr" header="时间控制">
-              <div v-if="message" class="alert" :class="messageOk ? 'alert-success' : 'alert-error'" style="margin-bottom:12px">
-                {{ message }}
-              </div>
-              <div style="display: flex; gap: 16px; align-items: center;">
-                <el-date-picker v-model="startTime" type="datetime" placeholder="开始时间" :disabled="submitting || deployed" value-format="YYYY-MM-DDTHH:mm:ss" />
-                <span style="color:#909399">至</span>
-                <el-date-picker v-model="endTime" type="datetime" placeholder="结束时间" :disabled="submitting || deployed" value-format="YYYY-MM-DDTHH:mm:ss" />
-                <el-button type="primary" :disabled="deployed || submitting || !candidates.length || !startTime || !endTime" @click="handleSaveVotingTime">
-                   {{ submitting ? '部署中...' : (deployed ? '部署成功' : '部署') }}
-                </el-button>
-              </div>
-              <el-alert v-if="deployed" title="项目已部署" type="info" description="当前项目已部署投票窗口时间，不可更改" show-icon style="margin-top:12px;"/>
-            </el-card>
           </div>
 
           <!-- 3. Candidates -->
@@ -204,6 +216,7 @@
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ethers } from "ethers";
 import { Monitor, DataLine, FolderOpened, UserFilled, Tickets, List, VideoPlay, User, Cpu, WarnTriangleFilled } from '@element-plus/icons-vue';
+
 import AdminCandidateManager from "../components/admin/AdminCandidateManager.vue";
 import AdminLogsPanel from "../components/admin/AdminLogsPanel.vue";
 import AdminProjectSidebar from "../components/admin/AdminProjectSidebar.vue";
@@ -218,17 +231,10 @@ import {
   getTransactionLogs,
   getSecurityLogs,
   logTransaction,
-  setVotingTime
+  setVotingTime,
+  uploadToIPFS,
+  syncElectionToBackend
 } from "../services/api.js";
-
-const startTime = ref("");
-const endTime = ref("");
-const deployed = ref(false);
-const deployedStartTs = ref(0);
-const deployedEndTs = ref(0);
-
-const wallet = useWalletStore();
-const voting = useVotingStore();
 
 // Layout state
 const activeMenu = ref('overview');
@@ -245,6 +251,201 @@ const activeMenuName = computed(() => {
 
 function handleMenuSelect(index) {
   activeMenu.value = index;
+}
+
+const startTime = ref("");
+const endTime = ref("");
+const deployed = ref(false);
+const deployedStartTs = ref(0);
+const deployedEndTs = ref(0);
+
+const wallet = useWalletStore();
+const voting = useVotingStore();
+
+const showCreateForm = ref(false);
+const globalSearchQuery = ref("");
+const statusFilter = ref("");
+
+function goToProjectsWithFilter(filter) {
+  statusFilter.value = filter;
+  activeMenu.value = 'projects';
+  globalSearchQuery.value = "";
+  // 滚动到顶部
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ==================== 创建项目向导 ====================
+const wizardVisible = ref(false);
+const wizardStep = ref(1); // 1: 基本信息, 2: 候选人, 3: 选民, 4: 启动投票
+const wizardData = reactive({
+  projectName: "",
+  sbtImageCid: "",
+  sbtImageUploading: false,
+  sbtImageError: "",
+  startTime: "",
+  endTime: "",
+  createdAddr: "", // 新合约地址
+  createdTitle: ""
+});
+const wizardStepSubmitting = ref(false);
+const wizardMsg = ref("");
+const wizardMsgOk = ref(false);
+
+function openWizard() {
+  wizardVisible.value = true;
+  wizardStep.value = 1;
+  wizardData.projectName = "";
+  wizardData.sbtImageCid = "";
+  wizardData.sbtImageUploading = false;
+  wizardData.sbtImageError = "";
+  wizardData.startTime = "";
+  wizardData.endTime = "";
+  wizardData.createdAddr = "";
+  wizardData.createdTitle = "";
+  wizardMsg.value = "";
+  wizardMsgOk.value = false;
+}
+
+function closeWizard() {
+  wizardVisible.value = false;
+}
+
+// 上传 IPFS 图片（给向导用）
+async function handleWizardUploadImage(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  wizardData.sbtImageUploading = true;
+  wizardData.sbtImageError = "";
+  try {
+    const result = await uploadToIPFS(file);
+    wizardData.sbtImageCid = result.cid;
+  } catch (e) {
+    wizardData.sbtImageError = "图片上传失败：" + (e.response?.data?.detail || e.message);
+  } finally {
+    wizardData.sbtImageUploading = false;
+    event.target.value = "";
+  }
+}
+
+// 验证第 1 步的数据
+function wizardStep1Valid() {
+  return wizardData.projectName.trim() &&
+         wizardData.sbtImageCid.trim() &&
+         wizardData.startTime &&
+         wizardData.endTime &&
+         new Date(wizardData.endTime) > new Date(wizardData.startTime);
+}
+
+// 部署第 1 步：创建合约并保存时间（不启动投票，只部署合约）
+async function handleWizardStep1Deploy() {
+  if (!wizardStep1Valid()) {
+    wizardMsg.value = "请检查所有输入：项目名称、SBT 图片、开始时间和结束时间";
+    wizardMsgOk.value = false;
+    return;
+  }
+
+  wizardStepSubmitting.value = true;
+  wizardMsg.value = "正在将项目部署到区块链...";
+  wizardMsgOk.value = true;
+
+  try {
+    const factory = await voting.getFactoryWriteContract();
+    const tx = await factory.createElection(
+      wizardData.projectName.trim(),
+      wizardData.sbtImageCid.trim()
+    );
+    
+    wizardMsg.value = "交易已发送，等待链上确认...";
+    const receipt = await tx.wait();
+    
+    // 解析新合约地址
+    const iface = factory.interface;
+    let newAddr = "";
+    for (const log of receipt.logs) {
+      try {
+        const parsed = iface.parseLog(log);
+        if (parsed && parsed.name === "ElectionCreated") {
+          newAddr = parsed.args.electionAddr;
+          break;
+        }
+      } catch {}
+    }
+
+    if (!newAddr) throw new Error("无法解析新合约地址");
+
+    wizardData.createdAddr = newAddr;
+    wizardData.createdTitle = wizardData.projectName;
+    
+    // 把项目信息同步到后端数据库
+    try {
+      const startTs = Math.floor(new Date(wizardData.startTime).getTime() / 1000);
+      const endTs = Math.floor(new Date(wizardData.endTime).getTime() / 1000);
+      await syncElectionToBackend(newAddr, wizardData.projectName, startTs, endTs);
+    } catch (e) {
+      console.warn("后端同步项目可能有问题:", e);
+    }
+
+    wizardMsg.value = "✓ 合约部署成功！现在请继续添加候选人...";
+    wizardMsgOk.value = true;
+    
+    // 自动加载最新的项目列表
+    await voting.loadElections();
+    
+    // 前进到第 2 步
+    wizardStep.value = 2;
+  } catch (e) {
+    wizardMsg.value = "部署失败：" + (e.reason || e.message);
+    wizardMsgOk.value = false;
+  } finally {
+    wizardStepSubmitting.value = false;
+  }
+}
+
+// 前进到第 4 步（可选 2、3 步）
+async function wizardGoToStep4() {
+  if (!wizardData.createdAddr) {
+    wizardMsg.value = "请先完成第 1 步（合约部署）";
+    return;
+  }
+  wizardStep.value = 4;
+  wizardMsg.value = "";
+}
+
+// 启动投票（第 4 步）
+async function handleWizardStep4Start() {
+  if (!wizardData.createdAddr || !wizardData.startTime || !wizardData.endTime) {
+    wizardMsg.value = "缺少必要参数";
+    wizardMsgOk.value = false;
+    return;
+  }
+
+  wizardStepSubmitting.value = true;
+  wizardMsg.value = "正在启动投票...";
+  wizardMsgOk.value = true;
+
+  try {
+    const startTs = Math.floor(new Date(wizardData.startTime).getTime() / 1000);
+    const endTs = Math.floor(new Date(wizardData.endTime).getTime() / 1000);
+
+    const res = await setVotingTime(wizardData.createdAddr, startTs, endTs);
+    
+    wizardMsg.value = "✓ 投票已正式启动！项目现已生效。";
+    wizardMsgOk.value = true;
+
+    // 刷新项目列表并自动选中新项目
+    await voting.loadElections();
+    setTimeout(() => {
+      activeMenu.value = 'projects';
+      handleSelect(wizardData.createdAddr);
+      closeWizard();
+    }, 1500);
+  } catch (e) {
+    wizardMsg.value = "启动失败：" + (e.response?.data?.detail || e.message);
+    wizardMsgOk.value = false;
+  } finally {
+    wizardStepSubmitting.value = false;
+  }
 }
 
 // 创建项目
@@ -277,28 +478,6 @@ const securityLogStats = reactive({ total: 0, warning: 0, critical: 0 });
 const loadingTxLogs = ref(false);
 const loadingSecLogs = ref(false);
 
-// ==================== 全系统统计 ====================
-const globalVoterStats = reactive({ total: -1, claimed: 0 });
-
-async function loadGlobalStats() {
-  try {
-    if (myElections.value.length > 0) {
-      let totalVoters = 0;
-      for (const election of myElections.value) {
-        try {
-          const data = await getVotersCount(election.address);
-          totalVoters += (data.total_registered || 0);
-        } catch (e) {
-          console.error(`获取项目 ${election.address} 选民数失败:`, e);
-        }
-      }
-      globalVoterStats.total = totalVoters;
-    }
-  } catch (e) {
-    console.error("获取全系统统计失败:", e);
-  }
-}
-
 const avgGasUsed = computed(() => {
   if (transactionLogs.value.length === 0) return 0;
   const valid = transactionLogs.value.filter(l => l.gas_used > 0);
@@ -311,6 +490,66 @@ const avgGasUsed = computed(() => {
 const myElections = computed(() =>
   voting.elections.filter(e => e.creator.toLowerCase() === wallet.address?.toLowerCase())
 );
+
+const dashboardStats = reactive({
+  notStarted: 0,
+  inProgress: 0,
+  ended: 0
+});
+
+const projectStatuses = reactive({});
+const projectTimes = reactive({});
+
+async function loadDashboardStats() {
+  let notStarted = 0;
+  let inProgress = 0;
+  let ended = 0;
+  
+  const now = Math.floor(Date.now() / 1000);
+  
+  if (myElections.value && myElections.value.length > 0) {
+    for (const e of myElections.value) {
+      try {
+        const contract = getReadContract(e.address);
+        const [startTsRaw, endTsRaw] = await Promise.all([
+          contract.votingStartTime(),
+          contract.votingEndTime(),
+        ]);
+        const startTs = Number(startTsRaw);
+        const endTs = Number(endTsRaw);
+        
+        let s = 'not_started';
+        if (startTs === 0 && endTs === 0) {
+          s = 'not_started';
+          notStarted++;
+        } else if (now < startTs) {
+          s = 'not_started';
+          notStarted++;
+        } else if (now >= startTs && now <= endTs) {
+          s = 'in_progress';
+          inProgress++;
+        } else {
+          s = 'ended';
+          ended++;
+        }
+        
+        projectStatuses[e.address] = s;
+        projectTimes[e.address] = { start: startTs, end: endTs };
+      } catch (err) {
+        console.error("加载项目状态失败:", err);
+        projectStatuses[e.address] = 'error';
+      }
+    }
+  }
+  
+  dashboardStats.notStarted = notStarted;
+  dashboardStats.inProgress = inProgress;
+  dashboardStats.ended = ended;
+}
+
+watch(myElections, () => {
+  loadDashboardStats();
+}, { immediate: true });
 
 function toDatetimeLocal(seconds) {
   if (!seconds) return "";
@@ -413,7 +652,6 @@ async function handleCreate() {
       handleSelect(newAddr);
     }
   } catch (e) {
-    // 更详细的错误信息处理
     let errMsg = "创建失败";
     const errStr = (e.code || "") + " " + (e.message || "");
     if (e.code === "ACTION_REJECTED" || errStr.includes("rejected") || errStr.includes("denied")) {
@@ -444,7 +682,6 @@ async function handleSelect(addr) {
   await checkAdmin();
   await loadData();
   await loadVoterStats();
-  // 切换项目时自动加载对应日志
   await loadTransactionLogs();
   await loadSecurityLogs();
 }
@@ -491,11 +728,10 @@ async function loadData() {
       deployedEndTs.value = 0;
     }
 
-    const [names, imageCids, manifestoCids, votes] = all;
+    const [names, cids, votes] = all;
     candidates.value = names.map((n, i) => ({
       name: n,
-      cid: imageCids[i],
-      manifestoCid: manifestoCids[i],
+      cid: cids[i],
       votes: Number(votes[i]),
     }));
     status.candidates = candidates.value.length;
@@ -507,10 +743,19 @@ async function loadData() {
 // ==================== 候选人操作 ====================
 async function handleBatchAdd(items) {
   if (!items.length) return;
+  
+  // 如果在向导中，使用新创建的地址
+  const targetAddr = wizardVisible.value && wizardData.createdAddr ? wizardData.createdAddr : selectedAddr.value;
+  if (!targetAddr) {
+    message.value = "请先选择项目";
+    messageOk.value = false;
+    return;
+  }
+
   submitting.value = true;
   message.value = "";
   try {
-    const contract = await getWriteContract(selectedAddr.value);
+    const contract = await getWriteContract(targetAddr);
     const names = items.map(i => i.name.trim());
     const cids = items.map(i => i.cid.trim());
     const manifestoCids = items.map(i => i.manifestoCid.trim());
@@ -525,20 +770,18 @@ async function handleBatchAdd(items) {
     message.value = `交易已发送（${items.length} 个候选人），等待链上确认...`;
     messageOk.value = true;
 
-    // 记录交易日志（Pending）
     await logTransaction({
       tx_hash: tx.hash,
-      election_address: selectedAddr.value,
+      election_address: targetAddr,
       operation_type: "ADD_CANDIDATES",
       status: "pending"
     });
 
     const receipt = await tx.wait();
 
-    // 更新记录（Success）
     await logTransaction({
       tx_hash: tx.hash,
-      election_address: selectedAddr.value,
+      election_address: targetAddr,
       operation_type: "ADD_CANDIDATES",
       gas_used: Number(receipt.gasUsed),
       total_cost: receipt.fee.toString(),
@@ -559,8 +802,11 @@ async function handleBatchAdd(items) {
 
 // ==================== 选民管理 ====================
 async function loadVoterStats() {
+  const targetAddr = wizardVisible.value && wizardData.createdAddr ? wizardData.createdAddr : selectedAddr.value;
+  if (!targetAddr) return;
+
   try {
-    const data = await getVotersCount(selectedAddr.value);
+    const data = await getVotersCount(targetAddr);
     voterStats.total = data.total_registered;
     voterStats.claimed = data.total_claimed;
   } catch (e) {
@@ -571,12 +817,19 @@ async function loadVoterStats() {
 async function handleExcelImport(file) {
   if (!file) return;
 
+  const targetAddr = wizardVisible.value && wizardData.createdAddr ? wizardData.createdAddr : selectedAddr.value;
+  if (!targetAddr) {
+    voterMessage.value = "请先选择或创建项目";
+    voterMessageOk.value = false;
+    return;
+  }
+
   voterSubmitting.value = true;
   voterMessage.value = "Excel 正在导入中...";
   voterMessageOk.value = true;
 
   try {
-    const res = await uploadVotersExcel(selectedAddr.value, file);
+    const res = await uploadVotersExcel(targetAddr, file);
     if (res.success) {
       voterMessage.value = res.message;
       voterMessageOk.value = true;
@@ -600,6 +853,13 @@ async function handleExcelImport(file) {
 async function handleBatchRegister(items) {
   if (!items.length) return;
 
+  const targetAddr = wizardVisible.value && wizardData.createdAddr ? wizardData.createdAddr : selectedAddr.value;
+  if (!targetAddr) {
+    voterMessage.value = "请先选择或创建项目";
+    voterMessageOk.value = false;
+    return;
+  }
+
   voterSubmitting.value = true;
   voterMessage.value = "";
   let success = 0;
@@ -608,7 +868,7 @@ async function handleBatchRegister(items) {
 
   for (const v of items) {
     try {
-      await registerVoter(v.studentId.trim(), v.password.trim(), selectedAddr.value);
+      await registerVoter(v.studentId.trim(), v.password.trim(), targetAddr);
       success++;
     } catch (e) {
       failed++;
@@ -649,7 +909,6 @@ async function loadSecurityLogs() {
     const data = await getSecurityLogs(selectedAddr.value);
     securityLogs.value = data.logs || [];
     
-    // 统计日志
     securityLogStats.total = data.total || 0;
     securityLogStats.warning = securityLogs.value.filter(l => l.severity === "warning").length;
     securityLogStats.critical = securityLogs.value.filter(l => l.severity === "critical").length;
@@ -664,183 +923,133 @@ async function loadSecurityLogs() {
   }
 }
 
+import { useRoute, useRouter } from "vue-router";
+const route = useRoute();
+const router = useRouter();
+
 // ==================== 生命周期 ====================
 onMounted(async () => {
   await voting.loadElections();
-  await loadGlobalStats();
+  
+  if (route.query.menu && route.query.addr) {
+    activeMenu.value = route.query.menu;
+    handleSelect(route.query.addr);
+    router.replace({ query: {} }); // remove query after init
+  }
 });
 
 watch(() => wallet.address, async () => {
   await voting.loadElections();
-  await loadGlobalStats();
   if (selectedAddr.value) {
     await checkAdmin();
-  }
-});
-
-watch(() => voting.elections, async () => {
-  if (activeMenu.value === 'overview') {
-    await loadGlobalStats();
   }
 });
 </script>
 
 <style scoped>
-.admin-view {
-  max-width: 1200px;
-  margin: 0 auto;
-  animation: fadeIn 0.4s ease-out;
+.admin-layout {
+  height: 100vh;
+  background-color: #f5f7fa;
+}
+
+.clickable-card {
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.clickable-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+}
+
+.admin-sidebar {
+  background-color: #1E222D;
   display: flex;
   flex-direction: column;
-  gap: 24px;
 }
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.card {
-  padding: 32px;
-  background: var(--card-bg);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255,255,255,0.6);
-  border-radius: var(--radius);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-}
-
-.card h2 {
-  font-size: 28px;
-  margin: 0 0 12px;
-  font-weight: 800;
-  color: #1e293b;
+.sidebar-logo {
+  height: 60px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  padding: 0 20px;
+  background-color: #161923;
+  border-bottom: 1px solid #2C303F;
 }
-
-.desc {
-  font-size: 16px;
-  color: var(--text-secondary);
-  margin-bottom: 32px;
+.sidebar-menu {
+  border-right: none;
+  flex: 1;
 }
-
-.section {
+.admin-header {
+  background-color: #fff;
+  border-bottom: 1px solid #ebedf0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 24px;
+  height: 60px;
+}
+.header-left {
+  display: flex;
+  align-items: center;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+}
+.admin-main {
   padding: 24px;
-  background: white;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  margin-bottom: 24px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.section:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-}
-
-.selected-header {
-  background: linear-gradient(to right, #f8fafc, #ffffff);
-  border-left: 4px solid var(--primary);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.selected-header h3 {
-  margin: 0;
-  font-size: 20px;
-  color: var(--primary);
-  font-weight: 700;
-}
-
-.el-addr-full {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 14px;
-  color: #4b5563;
-  word-break: break-all;
-  background: rgba(255,255,255,0.8);
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
-}
-
-.status-bar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+.alert {
   padding: 16px;
-  background: #f1f5f9;
-  border-radius: var(--radius);
-  margin-bottom: 24px;
-  font-weight: 500;
-}
-
-.badge {
-  padding: 6px 12px;
   border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
+  margin-bottom: 24px;
+  background: white;
 }
-
-.badge-warn {
-  background: #fef3c7;
-  color: #b45309;
-  border: 1px solid #fde68a;
-}
-.badge-ok {
-  background: #dcfce3;
-  color: #047857;
-  border: 1px solid #bbf7d0;
-}
-.badge-error {
-  background: #fee2e2;
+.alert-error {
   color: #b91c1c;
+  background-color: #fef2f2;
   border: 1px solid #fecaca;
 }
 
-.control-section {
-  background: #fafafa;
+.context-card {
+  margin-bottom: 24px;
+  border-radius: 8px;
 }
 
-.control-header h3 {
-  margin-top: 0;
-  margin-bottom: 16px;
-  font-size: 18px;
-  color: #111827;
+.data-card {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+.card-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  margin-right: 16px;
+  float: left;
+}
+.card-info {
+  display: flex;
+  flex-direction: column;
+}
+.card-info .label {
+  color: #909399;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.card-info .value {
+  color: #303133;
+  font-size: 24px;
   font-weight: 600;
 }
 
-.time-inputs label {
-  display: flex;
-  align-items: center;
-  font-weight: 500;
-  font-size: 14px;
-  color: #4b5563;
-}
-
-.time-inputs input {
-  padding: 10px 14px;
-  border: 1px solid var(--border);
+.section-card {
+  margin-bottom: 24px;
   border-radius: 8px;
-  font-size: 14px;
-  font-family: inherit;
-  outline: none;
-  transition: all 0.2s;
-  background: white;
-}
-.time-inputs input:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-.time-inputs input:disabled {
-  background: #f3f4f6;
-  cursor: not-allowed;
-}
-
-.btn-group {
-  margin-top: 20px;
-  display: flex;
-  gap: 12px;
 }
 </style>

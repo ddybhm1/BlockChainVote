@@ -52,9 +52,10 @@ body {
 }
 
 .main-content {
-  max-width: 1200px;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 32px 16px;
+  padding: 32px 24px;
   animation: fadeIn 0.4s ease-out;
 }
 

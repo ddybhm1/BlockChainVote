@@ -5,10 +5,11 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import List, Optional
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
@@ -24,6 +25,7 @@ from services.blockchain import (
     get_web3,
 )
 from services.session_auth import create_token, decode_token
+from config import FACTORY_CATALOG_TIMEOUT_SECONDS, FACTORY_CATALOG_TTL_SECONDS
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -44,6 +46,9 @@ if not auth_logger.handlers:
         )
     )
     auth_logger.addHandler(fh)
+
+_catalog_cache = {"expires_at": 0.0, "items": []}
+_catalog_lock = asyncio.Lock()
 
 
 def _normalize_student_id(student_id: str) -> str:
@@ -100,13 +105,20 @@ async def _get_current_student_id(
     return student_id
 
 
+def _checkpw(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+
+
 async def _verify_student_password(student_id: str, password: str, client_ip: str, db: AsyncSession) -> Voter:
     voter = await db.scalar(select(Voter).where(Voter.student_id == student_id))
     if not voter:
         auth_logger.warning(f"[AuthService] IP: {client_ip} - 学号 {student_id} 登录失败：学号不存在")
         raise HTTPException(status_code=401, detail="学号不存在")
 
-    if not bcrypt.checkpw(password.encode("utf-8"), voter.password_hash.encode("utf-8")):
+    loop = asyncio.get_running_loop()
+    is_valid = await loop.run_in_executor(None, _checkpw, password, voter.password_hash)
+    
+    if not is_valid:
         auth_logger.warning(f"[AuthService] IP: {client_ip} - 学号 {student_id} 登录失败：密码错误")
         raise HTTPException(status_code=401, detail="密码错误")
 
@@ -139,6 +151,44 @@ async def _get_ticket(student_id: str, election_address: str, db: AsyncSession) 
             ClaimedTicket.election_id == election_id,
         )
     )
+
+
+async def _get_factory_catalog_cached() -> List[dict]:
+    now = asyncio.get_running_loop().time()
+    if _catalog_cache["items"] and now < _catalog_cache["expires_at"]:
+        return _catalog_cache["items"]
+
+    async with _catalog_lock:
+        now = asyncio.get_running_loop().time()
+        if _catalog_cache["items"] and now < _catalog_cache["expires_at"]:
+            return _catalog_cache["items"]
+
+        loop = asyncio.get_running_loop()
+        try:
+            catalog = await asyncio.wait_for(
+                loop.run_in_executor(None, fetch_factory_elections),
+                timeout=FACTORY_CATALOG_TIMEOUT_SECONDS,
+            )
+            if not isinstance(catalog, list):
+                catalog = []
+            _catalog_cache["items"] = catalog
+            _catalog_cache["expires_at"] = loop.time() + FACTORY_CATALOG_TTL_SECONDS
+        except Exception as exc:
+            auth_logger.warning(f"[CatalogService] 获取工厂项目超时/失败，回退缓存: {exc}")
+            if _catalog_cache["items"]:
+                return _catalog_cache["items"]
+            # 首次启动且无缓存时，做一次不加 wait_for 的兜底拉取，避免空列表误伤页面。
+            try:
+                catalog = await loop.run_in_executor(None, fetch_factory_elections)
+                if not isinstance(catalog, list):
+                    catalog = []
+                _catalog_cache["items"] = catalog
+                _catalog_cache["expires_at"] = loop.time() + FACTORY_CATALOG_TTL_SECONDS
+            except Exception as second_exc:
+                auth_logger.warning(f"[CatalogService] 兜底拉取仍失败: {second_exc}")
+                return []
+
+    return _catalog_cache["items"]
 
 
 class LoginRequest(BaseModel):
@@ -194,14 +244,131 @@ class DashboardElectionItem(BaseModel):
     eligible: bool = True
 
 
-async def _sync_election_titles(db: AsyncSession) -> None:
-    loop = asyncio.get_running_loop()
+class DashboardElectionPageResponse(BaseModel):
+    items: List[DashboardElectionItem]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
-    try:
-        catalog = await loop.run_in_executor(None, fetch_factory_elections)
-    except Exception as exc:
-        auth_logger.warning(f"[CatalogService] 读取工厂标题失败：{exc}")
-        return
+
+def _is_todo(item: DashboardElectionItem) -> bool:
+    return item.phase != "ENDED" and item.status != STATUS_VOTED
+
+
+def _is_history(item: DashboardElectionItem) -> bool:
+    return item.phase == "ENDED" or item.status == STATUS_VOTED
+
+
+def _is_claimed_pending(item: DashboardElectionItem) -> bool:
+    return item.phase != "ENDED" and item.status == STATUS_CLAIMED
+
+
+def _matches_search(item: DashboardElectionItem, query: str) -> bool:
+    q = (query or "").strip().lower()
+    if not q:
+        return True
+    return q in (item.title or "").lower() or q in (item.election_address or "").lower()
+
+
+def _matches_bucket(item: DashboardElectionItem, bucket: str) -> bool:
+    b = (bucket or "all").strip().lower()
+    if b == "todo":
+        return _is_todo(item)
+    if b == "history":
+        return _is_history(item)
+    if b == "claimed":
+        return _is_claimed_pending(item)
+    return True
+
+
+async def _build_my_elections_items(student_id: str, db: AsyncSession) -> List[DashboardElectionItem]:
+    t0 = perf_counter()
+    mappings_query = (
+        select(ElectionVoter, Election, ClaimedTicket)
+        .outerjoin(Election, Election.id == ElectionVoter.election_id)
+        .outerjoin(
+            ClaimedTicket,
+            (ClaimedTicket.student_id == ElectionVoter.student_id)
+            & (ClaimedTicket.election_id == ElectionVoter.election_id),
+        )
+        .where(ElectionVoter.student_id == student_id)
+        .order_by(Election.start_time.asc(), Election.id.asc())
+    )
+
+    factory_elections, mappings_result = await asyncio.gather(
+        _get_factory_catalog_cached(),
+        db.execute(mappings_query),
+    )
+    t_fetch = perf_counter()
+
+    factory_addresses = {item["address"].lower() for item in factory_elections if item.get("address")}
+    factory_map = {
+        item["address"].lower(): item
+        for item in factory_elections
+        if item.get("address")
+    }
+
+    if not factory_addresses:
+        t_end = perf_counter()
+        auth_logger.info(
+            "[Perf] /auth/my-elections student=%s total=%.1fms fetch=%.1fms filter=%.1fms mappings=%d out=%d factory=%d",
+            student_id,
+            (t_end - t0) * 1000,
+            (t_fetch - t0) * 1000,
+            (t_end - t_fetch) * 1000,
+            0,
+            0,
+            0,
+        )
+        return []
+
+    mappings = mappings_result.all()
+
+    items: List[DashboardElectionItem] = []
+    for _, election, ticket in mappings:
+        if not election:
+            continue
+
+        normalized_address = election.contract_address.lower()
+        if normalized_address not in factory_addresses:
+            continue
+
+        factory_item = factory_map.get(normalized_address, {})
+        start_time = int(factory_item.get("start_time") or election.start_time or 0)
+        end_time = int(factory_item.get("end_time") or election.end_time or 0)
+        title = (factory_item.get("title") or election.title or "未命名投票项目").strip()
+
+        items.append(
+            DashboardElectionItem(
+                election_address=normalized_address,
+                title=title,
+                start_time=start_time,
+                end_time=end_time,
+                phase=_phase_from_times(start_time, end_time),
+                status=_serialize_ticket_status(ticket),
+                eligible=True,
+            )
+        )
+
+    t_end = perf_counter()
+    auth_logger.info(
+        "[Perf] /auth/my-elections student=%s total=%.1fms fetch=%.1fms filter=%.1fms mappings=%d out=%d factory=%d",
+        student_id,
+        (t_end - t0) * 1000,
+        (t_fetch - t0) * 1000,
+        (t_end - t_fetch) * 1000,
+        len(mappings),
+        len(items),
+        len(factory_addresses),
+    )
+
+    return items
+
+
+async def _sync_election_titles(db: AsyncSession, catalog: Optional[List[dict]] = None) -> None:
+    if catalog is None:
+        catalog = await _get_factory_catalog_cached()
 
     if not catalog:
         return
@@ -338,60 +505,33 @@ async def get_my_elections(
     student_id: str = Depends(_get_current_student_id),
     db: AsyncSession = Depends(get_db),
 ):
-    await _sync_election_titles(db)
+    return await _build_my_elections_items(student_id, db)
 
-    # 从工厂合约获取所有有效的项目地址
-    loop = asyncio.get_running_loop()
-    try:
-        factory_elections = await loop.run_in_executor(None, fetch_factory_elections)
-        factory_addresses = {item['address'].lower() for item in factory_elections}
-    except Exception as exc:
-        auth_logger.warning(f"[CatalogService] 获取工厂合约项目失败: {exc}")
-        factory_addresses = set()
 
-    # 获取当前学生有权访问的所有项目
-    mappings = (
-        await db.execute(
-            select(ElectionVoter, Election, ClaimedTicket)
-            .outerjoin(Election, Election.id == ElectionVoter.election_id)
-            .outerjoin(
-                ClaimedTicket,
-                (ClaimedTicket.student_id == ElectionVoter.student_id)
-                & (ClaimedTicket.election_id == ElectionVoter.election_id),
-            )
-            .where(ElectionVoter.student_id == student_id)
-            .order_by(Election.start_time.asc(), Election.id.asc())
-        )
-    ).all()
+@router.get("/my-elections-page", response_model=DashboardElectionPageResponse)
+async def get_my_elections_page(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(12, ge=1, le=100),
+    search: str = Query(""),
+    bucket: str = Query("all"),
+    student_id: str = Depends(_get_current_student_id),
+    db: AsyncSession = Depends(get_db),
+):
+    items = await _build_my_elections_items(student_id, db)
+    filtered = [item for item in items if _matches_bucket(item, bucket) and _matches_search(item, search)]
 
-    items = []
-    for election_voter, election, ticket in mappings:
-        if not election:
-            continue
-        
-        normalized_address = election.contract_address.lower()
-        
-        # 只返回在工厂合约中的项目
-        if normalized_address not in factory_addresses:
-            auth_logger.debug(f"[CatalogService] 学生 {student_id} 的项目 {normalized_address} 不在工厂合约中，已过滤")
-            continue
-            
-        start_time = int(election.start_time) if election.start_time else 0
-        end_time = int(election.end_time) if election.end_time else 0
-        
-        items.append(
-            DashboardElectionItem(
-                election_address=normalized_address,
-                title=(election.title.strip() if election and election.title else "未命名投票项目"),
-                start_time=start_time,
-                end_time=end_time,
-                phase=_phase_from_times(start_time, end_time),
-                status=_serialize_ticket_status(ticket),
-                eligible=True,
-            )
-        )
+    total = len(filtered)
+    start = (page - 1) * page_size
+    end = start + page_size
+    sliced = filtered[start:end]
 
-    return items
+    return DashboardElectionPageResponse(
+        items=sliced,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_more=end < total,
+    )
 
 
 @router.get("/ticket-status/{election_address}", response_model=DashboardElectionItem)
@@ -400,14 +540,24 @@ async def get_ticket_status(
     student_id: str = Depends(_get_current_student_id),
     db: AsyncSession = Depends(get_db),
 ):
+    t0 = perf_counter()
     await _sync_election_titles(db)
     election_address = _expect_eth_address(election_address, "投票项目合约地址")
     await _require_election_membership(student_id, election_address, db)
 
-    election = await db.scalar(
+    election_task = db.scalar(
         select(Election).where(func.lower(Election.contract_address) == election_address)
     )
-    ticket = await _get_ticket(student_id, election_address, db)
+    ticket_task = _get_ticket(student_id, election_address, db)
+    election, ticket = await asyncio.gather(election_task, ticket_task)
+    t_end = perf_counter()
+    auth_logger.info(
+        "[Perf] /auth/ticket-status student=%s election=%s total=%.1fms",
+        student_id,
+        election_address,
+        (t_end - t0) * 1000,
+    )
+
     start_time = int(election.start_time) if election else 0
     end_time = int(election.end_time) if election else 0
 

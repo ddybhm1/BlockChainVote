@@ -39,11 +39,11 @@
         <div class="vote-ended-text">投票已经结束</div>
       </template>
       <a
-        v-if="cid"
-        :href="`${ipfsGateway}${cid}`"
+        v-if="manifesto"
+        :href="manifesto"
         target="_blank"
         class="cid-link"
-        title="在 IPFS 上查看原始资料"
+        title="在 IPFS 上验证并打开候选人竞选宣言 PDF"
       >
         📎 IPFS 验证
       </a>
@@ -68,8 +68,6 @@ const props = defineProps({
 });
 
 defineEmits(["vote"]);
-
-const ipfsGateway = import.meta.env.VITE_IPFS_GATEWAY || "https://ipfs.io/ipfs/";
 
 const buttonText = computed(() => {
   if (props.votingEnded) return "投票已经结束";

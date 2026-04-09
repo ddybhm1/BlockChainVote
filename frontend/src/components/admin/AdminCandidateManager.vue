@@ -50,12 +50,13 @@
               :disabled="item.uploadingDoc"
             />
 
-            <label class="btn-icon btn-upload" :title="item.uploadingDoc ? '上传中...' : '上传宣言文档到 IPFS'">
+            <label class="btn-icon btn-upload" :title="item.uploadingDoc ? '上传中...' : '上传 PDF 宣言到 IPFS'">
               <span v-if="item.uploadingDoc" class="spinner"></span>
               <span v-else>📄</span>
               <input
                 type="file"
                 class="file-hidden"
+                accept="application/pdf,.pdf"
                 :disabled="item.uploadingDoc"
                 @change="handleFileUpload($event, index, 'document')"
               />

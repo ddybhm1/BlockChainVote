@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import logging
@@ -65,6 +66,20 @@ class SetVotingTimeRequest(BaseModel):
     election_address: str
     start_time: int
     end_time: int
+
+
+class SyncElectionRequest(BaseModel):
+    election_address: str
+    title: str
+    start_time: int
+    end_time: int
+
+    @field_validator("election_address")
+    @classmethod
+    def validate_address(cls, v: str) -> str:
+        if not re.match(r"^0x[0-9a-fA-F]{40}$", v):
+            raise ValueError("钱包地址格式错误")
+        return v.lower()
 
 
 class LogTransactionRequest(BaseModel):
@@ -165,6 +180,38 @@ async def set_voting_time(req: SetVotingTimeRequest, db: AsyncSession = Depends(
         raise HTTPException(status_code=500, detail=f"部署失败: {str(e)}")
 
 
+@router.post("/sync-election")
+async def sync_election(req: SyncElectionRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        normalized_address = req.election_address.lower()
+        election = await db.scalar(select(Election).where(func.lower(Election.contract_address) == normalized_address))
+        
+        if election:
+            election.title = req.title
+            election.start_time = req.start_time
+            election.end_time = req.end_time
+        else:
+            new_election = Election(
+                contract_address=normalized_address,
+                title=req.title,
+                start_time=req.start_time,
+                end_time=req.end_time
+            )
+            db.add(new_election)
+            
+        await db.commit()
+        return {"success": True, "message": "项目同步成功"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"项目同步失败: {str(e)}")
+
+
+def _hash_pass(password: str) -> bytes:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+
+def _check_pass(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+
 @router.post("/register-voter", response_model=RegisterVoterResponse)
 async def register_voter(req: RegisterVoterRequest, db: AsyncSession = Depends(get_db)):
     student_id = req.student_id.strip()
@@ -175,8 +222,9 @@ async def register_voter(req: RegisterVoterRequest, db: AsyncSession = Depends(g
         raise HTTPException(status_code=404, detail="无效的投票项目")
 
     voter = await db.scalar(select(Voter).where(Voter.student_id == student_id))
+    loop = asyncio.get_running_loop()
     if not voter:
-        hashed = bcrypt.hashpw(req.password.encode("utf-8"), bcrypt.gensalt())
+        hashed = await loop.run_in_executor(None, _hash_pass, req.password)
         voter = Voter(
             student_id=student_id,
             password_hash=hashed.decode("utf-8"),
@@ -184,7 +232,8 @@ async def register_voter(req: RegisterVoterRequest, db: AsyncSession = Depends(g
         )
         db.add(voter)
     else:
-        if not bcrypt.checkpw(req.password.encode("utf-8"), voter.password_hash.encode("utf-8")):
+        is_valid = await loop.run_in_executor(None, _check_pass, req.password, voter.password_hash)
+        if not is_valid:
             raise HTTPException(status_code=409, detail="该学号已存在且密码不一致")
 
     existing_mapping = await db.scalar(
@@ -253,8 +302,10 @@ async def upload_voters_excel(
         password = str(row[col_password]).strip()
 
         voter = await db.scalar(select(Voter).where(Voter.student_id == student_id))
+        loop = asyncio.get_running_loop()
+        
         if not voter:
-            hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+            hashed = await loop.run_in_executor(None, _hash_pass, password)
             voter = Voter(
                 student_id=student_id,
                 password_hash=hashed.decode("utf-8"),
@@ -262,9 +313,11 @@ async def upload_voters_excel(
             )
             db.add(voter)
             await db.flush()
-        elif not bcrypt.checkpw(password.encode("utf-8"), voter.password_hash.encode("utf-8")):
-            errors.append(f"第 {i} 行: 学号 {student_id} 已存在但密码不匹配")
-            continue
+        else:
+            is_valid = await loop.run_in_executor(None, _check_pass, password, voter.password_hash)
+            if not is_valid:
+                errors.append(f"第 {i} 行: 学号 {student_id} 已存在但密码不匹配")
+                continue
 
         existing_mapping = await db.scalar(
             select(ElectionVoter).where(
@@ -312,11 +365,22 @@ async def get_voters_count(
 
 
 @router.post("/upload-ipfs")
-async def upload_to_ipfs(file: UploadFile = File(...)):
+async def upload_to_ipfs(file: UploadFile = File(...), purpose: str = Form("generic")):
     if file.size and file.size > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="文件大小不能超过 10MB")
 
     contents = await file.read()
+    normalized_purpose = (purpose or "generic").strip().lower()
+
+    if normalized_purpose == "manifesto":
+        filename = (file.filename or "").lower()
+        content_type = (file.content_type or "").lower()
+        is_pdf_name = filename.endswith(".pdf")
+        is_pdf_type = content_type in {"application/pdf", "application/x-pdf"}
+        is_pdf_binary = contents.startswith(b"%PDF-")
+        if not (is_pdf_name or is_pdf_type or is_pdf_binary):
+            raise HTTPException(status_code=400, detail="候选人竞选宣言必须上传 PDF 文件")
+
     try:
         cid = pin_file_to_ipfs(contents, file.filename or "upload")
         admin_logger.info(f"[Web3Service] 管理员向区块链发起交易，成功将文件 {file.filename or 'upload'} 上传至 IPFS，CID: {cid}")

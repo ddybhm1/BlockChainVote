@@ -30,7 +30,7 @@
         
         <el-row :gutter="20" class="hero-stats">
           <el-col :xs="24" :sm="12" :md="6">
-            <el-card class="stat-card" shadow="hover">
+            <el-card class="stat-card" shadow="hover" @click="jumpByBucket('todo')">
               <div class="stat-icon" style="background: #fef3c7; color: #f59e0b;">📋</div>
               <div class="stat-content">
                 <div class="stat-label">待投项目</div>
@@ -39,7 +39,7 @@
             </el-card>
           </el-col>
           <el-col :xs="24" :sm="12" :md="6">
-            <el-card class="stat-card" shadow="hover">
+            <el-card class="stat-card" shadow="hover" @click="jumpByBucket('history')">
               <div class="stat-icon" style="background: #dbeafe; color: #3b82f6;">✓</div>
               <div class="stat-content">
                 <div class="stat-label">已完成</div>
@@ -48,20 +48,11 @@
             </el-card>
           </el-col>
           <el-col :xs="24" :sm="12" :md="6">
-            <el-card class="stat-card" shadow="hover">
+            <el-card class="stat-card" shadow="hover" @click="jumpByBucket('claimed')">
               <div class="stat-icon" style="background: #dbeafe; color: #3b82f6;">⏳</div>
               <div class="stat-content">
                 <div class="stat-label">已领票待投</div>
                 <div class="stat-value">{{ claimedPendingCount }}</div>
-              </div>
-            </el-card>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-card class="stat-card" shadow="hover">
-              <div class="stat-icon" style="background: #dcfce7; color: #22c55e;">📊</div>
-              <div class="stat-content">
-                <div class="stat-label">全部项目</div>
-                <div class="stat-value">{{ dashboardItems.length }}</div>
               </div>
             </el-card>
           </el-col>
@@ -96,51 +87,18 @@
           </div>
         </template>
 
-        <!-- Search & Filters -->
-        <el-row :gutter="20" class="filter-row">
-          <el-col :xs="24" :md="12">
-            <el-input
-              v-model="searchQuery"
-              placeholder="搜索项目标题或合约地址..."
-              clearable
-              prefix-icon="Search"
-            />
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-select v-model="statusFilter" placeholder="状态筛选" clearable>
-              <el-option label="进行中" value="active" />
-              <el-option label="待参与" value="pending" />
-              <el-option label="已完成" value="completed" />
-              <el-option label="已结束" value="ended" />
-            </el-select>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-select v-model="sortBy" placeholder="排序方式">
-              <el-option label="最新优先" value="latest" />
-              <el-option label="按截止时间" value="deadline" />
-              <el-option label="按状态" value="status" />
-            </el-select>
-          </el-col>
-        </el-row>
-
-        <!-- Tabs & View Mode -->
         <div class="filter-actions" style="margin-top: 16px;">
-          <el-tabs v-model="activeTab" class="demo-tabs">
-            <el-tab-pane label="📌 待办事项" name="todo">
-              待办 ({{ tabs.find(t => t.key === 'todo')?.count || 0 }})
-            </el-tab-pane>
-            <el-tab-pane label="📂 全部项目" name="all">
-              全部 ({{ tabs.find(t => t.key === 'all')?.count || 0 }})
-            </el-tab-pane>
-            <el-tab-pane label="✅ 历史项目" name="history">
-              历史 ({{ tabs.find(t => t.key === 'history')?.count || 0 }})
-            </el-tab-pane>
-          </el-tabs>
+          <el-input
+            v-model="searchQuery"
+            placeholder="搜索项目标题或合约地址..."
+            clearable
+            prefix-icon="Search"
+          />
         </div>
       </el-card>
 
       <!-- Projects Grid -->
-      <el-empty v-if="!filteredDashboardItems.length" :description="searchQuery ? '没有匹配的项目' : '暂无项目'" style="margin-top: 40px" />
+      <el-empty v-if="!filteredDashboardItems.length" description="暂无项目" style="margin-top: 40px" />
       
       <div v-else class="elections-container">
         <el-row :gutter="20">
@@ -172,27 +130,25 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ethers } from "ethers";
 import ElectionSummaryCard from "../components/dashboard/ElectionSummaryCard.vue";
 import { markVoted } from "../services/api.js";
 import { ELECTION_ABI } from "../services/contract.js";
 import { useAuthStore } from "../stores/auth.js";
 import { useWalletStore } from "../stores/wallet.js";
-import { cardCta, isHistoryItem, isTodoItem, matchesDashboardSearch, sortDashboardItems } from "../utils/dashboard.js";
+import { cardCta, isHistoryItem, isTodoItem, sortDashboardItems } from "../utils/dashboard.js";
 
 const auth = useAuthStore();
 const wallet = useWalletStore();
 const router = useRouter();
+const route = useRoute();
 
 const dashboardLoading = ref(false);
 const chainSyncing = ref(false);
-const activeTab = ref("all");
 const searchQuery = ref("");
 const currentPage = ref(1);
 const itemsPerPage = ref(10);
-const statusFilter = ref("");
-const sortBy = ref("latest");
 const pageMessage = reactive({
   type: "success",
   text: "",
@@ -200,76 +156,65 @@ const pageMessage = reactive({
 
 const dashboardItems = computed(() => auth.myElections);
 const sortedDashboardItems = computed(() => sortDashboardItems(dashboardItems.value));
-const searchedDashboardItems = computed(() =>
-  sortedDashboardItems.value.filter((item) => matchesDashboardSearch(item, searchQuery.value))
-);
 const todoCount = computed(() => dashboardItems.value.filter(isTodoItem).length);
 const claimedPendingCount = computed(
   () => dashboardItems.value.filter((item) => item.phase !== "ENDED" && item.status === "CLAIMED").length
 );
 const votedCount = computed(() => dashboardItems.value.filter((item) => item.phase === "ENDED" || item.status === "VOTED").length);
 
-const tabs = computed(() => [
-  { key: "todo", label: "待办事项", count: searchedDashboardItems.value.filter(isTodoItem).length },
-  { key: "all", label: "全部项目", count: searchedDashboardItems.value.length },
-  { key: "history", label: "已参与/历史", count: searchedDashboardItems.value.filter(isHistoryItem).length },
-]);
+const routeBucket = computed(() => {
+  const value = route.query.bucket;
+  return typeof value === "string" ? value : "";
+});
 
-function applyStatusFilter(items) {
-  if (!statusFilter.value) return items;
-  
-  return items.filter((item) => {
-    switch (statusFilter.value) {
-      case "active":
-        return item.phase === "ACTIVE";
-      case "pending":
-        return item.phase === "PENDING";
-      case "completed":
-        return item.status === "VOTED";
-      case "ended":
-        return item.phase === "ENDED";
-      default:
-        return true;
-    }
-  });
+function applyBucketFilter(items, bucket) {
+  if (bucket === "todo") {
+    return items.filter(isTodoItem);
+  }
+  if (bucket === "history") {
+    return items.filter(isHistoryItem);
+  }
+  if (bucket === "claimed") {
+    return items.filter((item) => item.phase !== "ENDED" && item.status === "CLAIMED");
+  }
+  return items;
 }
 
-function applySortBy(items) {
-  const sorted = [...items];
-  
-  switch (sortBy.value) {
-    case "deadline":
-      sorted.sort((a, b) => (a.end_time || 0) - (b.end_time || 0));
-      break;
-    case "status":
-      const statusOrder = { ACTIVE: 0, PENDING: 1, ENDED: 2 };
-      sorted.sort((a, b) => (statusOrder[a.phase] ?? 9) - (statusOrder[b.phase] ?? 9));
-      break;
-    case "latest":
-    default:
-      sorted.sort((a, b) => (b.start_time || 0) - (a.start_time || 0));
-      break;
-  }
-  
-  return sorted;
+function applyUnifiedSearch(items, keyword) {
+  const query = (keyword || "").trim().toLowerCase();
+  if (!query) return items;
+
+  const ranked = items
+    .map((item) => {
+      const title = (item.title || "").toLowerCase();
+      const address = (item.election_address || "").toLowerCase();
+      let score = -1;
+
+      if (title === query || address === query) {
+        score = 100;
+      } else if (title.startsWith(query) || address.startsWith(query)) {
+        score = 80;
+      } else if (query.length >= 2 && title.includes(query)) {
+        score = 60;
+      } else if (query.length >= 2 && address.includes(query)) {
+        score = 40;
+      }
+
+      return { item, score };
+    })
+    .filter((entry) => entry.score >= 0)
+    .sort((left, right) => right.score - left.score || (left.item.title || "").localeCompare(right.item.title || ""));
+
+  return ranked.map((entry) => entry.item);
+}
+
+function jumpByBucket(bucket) {
+  router.push({ name: "Dashboard", query: { ...route.query, bucket } });
 }
 
 const filteredDashboardItems = computed(() => {
-  let items = searchedDashboardItems.value;
-  
-  if (statusFilter.value) {
-    items = applyStatusFilter(items);
-  } else {
-    if (activeTab.value === "todo") {
-      items = items.filter(isTodoItem);
-    } else if (activeTab.value === "history") {
-      items = items.filter(isHistoryItem);
-    }
-  }
-  
-  items = applySortBy(items);
-  
-  return items;
+  const bucketFiltered = applyBucketFilter(sortedDashboardItems.value, routeBucket.value);
+  return applyUnifiedSearch(bucketFiltered, searchQuery.value);
 });
 
 const totalPages = computed(() => Math.ceil(filteredDashboardItems.value.length / itemsPerPage.value) || 1);
@@ -280,7 +225,7 @@ const paginatedItems = computed(() => {
   return filteredDashboardItems.value.slice(start, end);
 });
 
-watch([activeTab, searchQuery, statusFilter, sortBy], () => {
+watch([routeBucket, searchQuery], () => {
   currentPage.value = 1;
 });
 

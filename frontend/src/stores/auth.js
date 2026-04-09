@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import {
   AUTH_STUDENT_KEY,
   getMyElections,
+  getMyElectionsPage,
   getSession,
   getStoredStudentId,
   loginStudent,
@@ -16,6 +17,9 @@ export const useAuthStore = defineStore("auth", () => {
   const loading = ref(false);
   const sessionReady = ref(false);
   const myElections = ref([]);
+  const myElectionsPage = ref([]);
+  const myElectionsTotal = ref(0);
+  const myElectionsHasMore = ref(false);
 
   const isAuthenticated = computed(() => Boolean(token.value && studentId.value));
 
@@ -72,16 +76,42 @@ export const useAuthStore = defineStore("auth", () => {
     return data;
   }
 
+  async function loadMyElectionsPage({ page = 1, pageSize = 12, search = "", bucket = "all" } = {}) {
+    try {
+      const result = await getMyElectionsPage({ page, pageSize, search, bucket });
+      myElectionsPage.value = result.items || [];
+      myElectionsTotal.value = Number(result.total || 0);
+      myElectionsHasMore.value = Boolean(result.has_more);
+      return result;
+    } catch (error) {
+      console.error("Failed to load paged elections:", error);
+      myElectionsPage.value = [];
+      myElectionsTotal.value = 0;
+      myElectionsHasMore.value = false;
+      return {
+        items: [],
+        total: 0,
+        page,
+        page_size: pageSize,
+        has_more: false,
+      };
+    }
+  }
+
   return {
     token,
     studentId,
     loading,
     sessionReady,
     myElections,
+    myElectionsPage,
+    myElectionsTotal,
+    myElectionsHasMore,
     isAuthenticated,
     login,
     hydrate,
     logout,
     loadMyElections,
+    loadMyElectionsPage,
   };
 });

@@ -1,10 +1,12 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from web3 import Web3
 
-from config import FRONTEND_ORIGIN
+from config import FRONTEND_ORIGIN, GZIP_MINIMUM_SIZE
 from database import Base, engine
 from routers import admin, auth
+from services.indexer import election_indexer
 from services.realtime import vote_stream_manager
 from services.schema import ensure_runtime_schema
 import models  # noqa: F401
@@ -23,6 +25,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(GZipMiddleware, minimum_size=GZIP_MINIMUM_SIZE)
+
 app.include_router(auth.router)
 app.include_router(admin.router)
 
@@ -32,6 +36,12 @@ async def startup_create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await ensure_runtime_schema()
+    await election_indexer.start()
+
+
+@app.on_event("shutdown")
+async def shutdown_tasks():
+    await election_indexer.stop()
 
 
 @app.get("/api/health")

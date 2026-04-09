@@ -1,6 +1,6 @@
-import { BarChart, LineChart } from "echarts/charts";
+import { BarChart } from "echarts/charts";
 import { GridComponent, TooltipComponent } from "echarts/components";
-import { init, use, graphic } from "echarts/core";
+import { init, use } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import {
   computed,
@@ -12,9 +12,9 @@ import {
   watch,
 } from "vue";
 
-use([BarChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
+use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
-export function useRealtimeVoteBoard(props, trendChartEl, rankChartEl) {
+export function useRealtimeVoteBoard(props, rankChartEl) {
   const candidates = ref([]);
   const recentEvents = ref([]);
   const latestVote = ref(null);
@@ -28,7 +28,6 @@ export function useRealtimeVoteBoard(props, trendChartEl, rankChartEl) {
     voted: 0,
   });
 
-  let trendChart = null;
   let rankChart = null;
   let socket = null;
   let reconnectTimer = null;
@@ -211,19 +210,12 @@ export function useRealtimeVoteBoard(props, trendChartEl, rankChartEl) {
   }
 
   function initCharts() {
-    if (trendChartEl.value && !trendChart) {
-      trendChart = init(trendChartEl.value);
-    }
     if (rankChartEl.value && !rankChart) {
       rankChart = init(rankChartEl.value);
     }
   }
 
   function disposeCharts() {
-    if (trendChart) {
-      trendChart.dispose();
-      trendChart = null;
-    }
     if (rankChart) {
       rankChart.dispose();
       rankChart = null;
@@ -231,77 +223,11 @@ export function useRealtimeVoteBoard(props, trendChartEl, rankChartEl) {
   }
 
   function handleResize() {
-    trendChart?.resize();
     rankChart?.resize();
   }
 
   function renderCharts() {
     initCharts();
-
-    if (trendChart) {
-      const trendSeries = buildTrendSeries();
-      trendChart.setOption({
-        animationDuration: 500,
-        backgroundColor: "transparent",
-        grid: {
-          left: 48,
-          right: 20,
-          top: 28,
-          bottom: 36,
-        },
-        tooltip: {
-          trigger: "axis",
-          backgroundColor: "rgba(5, 15, 33, 0.92)",
-          borderWidth: 0,
-          textStyle: { color: "#e6f4ff" },
-        },
-        xAxis: {
-          type: "category",
-          boundaryGap: false,
-          data: trendSeries.labels,
-          axisLabel: {
-            color: "rgba(226, 240, 255, 0.72)",
-            fontSize: 11,
-          },
-          axisLine: {
-            lineStyle: { color: "rgba(103, 160, 210, 0.28)" },
-          },
-        },
-        yAxis: {
-          type: "value",
-          minInterval: 1,
-          axisLabel: {
-            color: "rgba(226, 240, 255, 0.72)",
-          },
-          splitLine: {
-            lineStyle: { color: "rgba(103, 160, 210, 0.14)" },
-          },
-        },
-        series: [
-          {
-            type: "line",
-            smooth: true,
-            symbolSize: 8,
-            data: trendSeries.values,
-            lineStyle: {
-              width: 4,
-              color: "#3dd9b6",
-            },
-            itemStyle: {
-              color: "#fbbf24",
-              borderColor: "#ffffff",
-              borderWidth: 1,
-            },
-            areaStyle: {
-              color: new graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: "rgba(61, 217, 182, 0.42)" },
-                { offset: 1, color: "rgba(61, 217, 182, 0.02)" },
-              ]),
-            },
-          },
-        ],
-      });
-    }
 
     if (rankChart) {
       const ranking = [...rankedCandidates.value].slice(0, 6).reverse();
@@ -357,27 +283,6 @@ export function useRealtimeVoteBoard(props, trendChartEl, rankChartEl) {
         ],
       });
     }
-  }
-
-  function buildTrendSeries() {
-    if (!recentEvents.value.length) {
-      return {
-        labels: ["当前票数"],
-        values: [totals.voted],
-      };
-    }
-
-    const labels = [];
-    const values = [];
-    let currentVotes = Math.max(0, totals.voted - recentEvents.value.length);
-
-    recentEvents.value.forEach((event) => {
-      currentVotes += 1;
-      labels.push(formatClock(event.blockTime));
-      values.push(currentVotes);
-    });
-
-    return { labels, values };
   }
 
   function candidateShare(votes) {

@@ -10,6 +10,7 @@
           type="text"
           class="selector-search"
           placeholder="搜索项目名称或合约地址"
+          @keydown.enter.prevent="selectFirstMatch"
         />
         <span v-if="searchQuery" class="search-clear" @click="searchQuery = ''">✕</span>
       </div>
@@ -29,6 +30,10 @@
           <div class="result-title">{{ el.title }}</div>
           <div class="result-address">{{ el.address }}</div>
         </div>
+      </div>
+
+      <div v-else-if="!searchQuery" class="search-hint">
+        输入项目名称或合约地址进行搜索
       </div>
 
       <div v-if="!searchQuery && selectedElectionTitle" class="selected-display">
@@ -53,16 +58,35 @@ const loading = ref(true);
 const searchQuery = ref("");
 
 const filteredElections = computed(() => {
-  if (!searchQuery.value.trim()) {
-    return elections.value;
+  const raw = searchQuery.value.trim();
+  if (!raw) {
+    return [];
   }
 
-  const query = searchQuery.value.toLowerCase();
-  return elections.value.filter(
-    (el) =>
-      el.title.toLowerCase().includes(query) ||
-      el.address.toLowerCase().includes(query)
-  );
+  const query = raw.toLowerCase();
+
+  const ranked = elections.value
+    .map((el) => {
+      const title = (el.title || "").toLowerCase();
+      const address = (el.address || "").toLowerCase();
+      let score = -1;
+
+      if (title === query || address === query) {
+        score = 100;
+      } else if (title.startsWith(query) || address.startsWith(query)) {
+        score = 80;
+      } else if (query.length >= 2 && title.includes(query)) {
+        score = 60;
+      } else if (query.length >= 2 && address.includes(query)) {
+        score = 40;
+      }
+
+      return { el, score };
+    })
+    .filter((item) => item.score >= 0)
+    .sort((a, b) => b.score - a.score || a.el.title.localeCompare(b.el.title));
+
+  return ranked.map((item) => item.el);
 });
 
 const selectedElectionTitle = computed(() => {
@@ -73,6 +97,11 @@ const selectedElectionTitle = computed(() => {
 function selectElection(address) {
   emit("update:modelValue", address);
   searchQuery.value = "";
+}
+
+function selectFirstMatch() {
+  if (!filteredElections.value.length) return;
+  selectElection(filteredElections.value[0].address);
 }
 
 onMounted(async () => {
@@ -195,6 +224,17 @@ onMounted(async () => {
   border: 1px solid var(--border, #e5e5e5);
   border-radius: 6px;
   margin-top: 8px;
+}
+
+.search-hint {
+  margin-top: 8px;
+  padding: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary, #888);
+  background: white;
+  border: 1px dashed var(--border, #e5e5e5);
+  border-radius: 6px;
 }
 
 .selected-display {

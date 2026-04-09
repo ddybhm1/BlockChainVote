@@ -80,6 +80,26 @@ export async function getMyElections() {
   return res.data;
 }
 
+export const getMyElectionsPage = async ({ page = 1, pageSize = 12, search = '', bucket = 'all' } = {}) => {
+  const response = await api.get('/auth/my-elections-page', {
+    params: {
+      page,
+      page_size: pageSize,
+      search,
+      bucket,
+    },
+  });
+  return (
+    response.data || {
+      items: [],
+      total: 0,
+      page,
+      page_size: pageSize,
+      has_more: false,
+    }
+  );
+}
+
 export async function getElectionTicketStatus(electionAddress) {
   const res = await api.get(`/auth/ticket-status/${electionAddress}`);
   return res.data;
@@ -142,12 +162,23 @@ export async function uploadVotersExcel(electionAddress, file) {
   return res.data;
 }
 
-export async function uploadToIPFS(file) {
+export async function uploadToIPFS(file, options = {}) {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("purpose", options.purpose || "generic");
   const res = await api.post("/admin/upload-ipfs", formData, {
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 180000,
+  });
+  return res.data;
+}
+
+export async function syncElectionToBackend(electionAddress, title, startTime, endTime) {
+  const res = await api.post("/admin/sync-election", {
+    election_address: electionAddress,
+    title,
+    start_time: startTime,
+    end_time: endTime
   });
   return res.data;
 }

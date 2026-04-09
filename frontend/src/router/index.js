@@ -42,6 +42,30 @@ const routes = [
     name: "Admin",
     component: () => import("../views/AdminView.vue"),
   },
+  {
+    path: "/admin/create/step1",
+    name: "ProjectCreateStep1",
+    component: () => import("../views/admin/ProjectCreateStep1.vue"),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: "/admin/create/:address/step2",
+    name: "ProjectCreateStep2",
+    component: () => import("../views/admin/ProjectCreateStep2.vue"),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: "/admin/create/:address/step3",
+    name: "ProjectCreateStep3",
+    component: () => import("../views/admin/ProjectCreateStep3.vue"),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: "/admin/create/:address/step4",
+    name: "ProjectCreateStep4",
+    component: () => import("../views/admin/ProjectCreateStep4.vue"),
+    meta: { requiresAuth: true }
+  },
 ];
 
 const router = createRouter({

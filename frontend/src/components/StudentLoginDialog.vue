@@ -135,12 +135,18 @@ async function handleLogin() {
 
   try {
     await auth.login(form.studentId, form.password);
-    await auth.loadMyElections();
     state.isSuccess = true;
     state.message = "验证成功，正在进入我的投票仪表盘。";
-    emit("success");
-    emit("update:modelValue", false);
-    await router.push(props.redirectPath || "/dashboard");
+    
+    // Keep navigation fast; dashboard will pull election list after route enter.
+    setTimeout(() => {
+      emit("success");
+      emit("update:modelValue", false);
+      router.push(props.redirectPath || "/dashboard");
+      auth.loadMyElections().catch((err) => {
+        console.warn("后台预加载我的投票项目失败:", err);
+      });
+    }, 50);
   } catch (err) {
     state.isSuccess = false;
     state.message = err.response?.data?.detail || err.message || "登录失败";

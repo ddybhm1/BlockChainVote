@@ -5,7 +5,7 @@
         <p class="eyebrow">Live On-Chain Feed</p>
         <h3>{{ titleText }}</h3>
         <p class="hero-desc">
-          链上每确认一笔 <code>Voted</code> 事件，走势折线图、票数柱状图和热度榜都会同步刷新，无需手动刷新页面。
+          链上每确认一笔 <code>Voted</code> 事件，票数柱状图与热度榜都会同步刷新，无需手动刷新页面。
         </p>
       </div>
       <div class="hero-metrics">
@@ -30,17 +30,6 @@
     </div>
 
     <div class="board-grid">
-      <section class="screen-card trend-card">
-        <div class="screen-header">
-          <div>
-            <h4>投票走势折线图</h4>
-            <p>展示近 {{ recentEvents.length || 0 }} 笔确认交易带来的票数抬升</p>
-          </div>
-          <span class="screen-badge">Auto Live</span>
-        </div>
-        <div ref="trendChartEl" class="chart chart-tall"></div>
-      </section>
-
       <section class="screen-card stats-card">
         <div class="screen-header">
           <div>
@@ -123,7 +112,6 @@ const props = defineProps({
   },
 });
 
-const trendChartEl = ref(null);
 const rankChartEl = ref(null);
 
 const {
@@ -143,7 +131,7 @@ const {
   formatClock,
   shortAddress,
   txUrl,
-} = useRealtimeVoteBoard(props, trendChartEl, rankChartEl);
+} = useRealtimeVoteBoard(props, rankChartEl);
 </script>
 
 <style scoped>
@@ -275,7 +263,7 @@ const {
 
 .board-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(350px, 0.95fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
@@ -327,10 +315,6 @@ const {
 
 .chart {
   width: 100%;
-}
-
-.chart-tall {
-  height: 360px;
 }
 
 .chart-compact {

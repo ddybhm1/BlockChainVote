@@ -7,7 +7,10 @@ async function main() {
   console.log(`部署账户: ${deployer.address}`);
 
   const ElectionFactory = await hre.ethers.getContractFactory("ElectionFactory");
-  const factory = await ElectionFactory.deploy();
+  const factory = await ElectionFactory.deploy({
+    maxFeePerGas: hre.ethers.parseUnits("50", "gwei"),
+    maxPriorityFeePerGas: hre.ethers.parseUnits("50", "gwei")
+  });
   await factory.waitForDeployment();
 
   const address = await factory.getAddress();
@@ -17,7 +20,10 @@ async function main() {
   // 为了自动认证 Factory 部署的子合约，我们在主脚本里先单独部署一个 VotingSystem 用来向 Etherscan 上传源码
   console.log("\n正在部署占位子合约 (仅用于 Etherscan 源码自动验证匹配)...");
   const VotingSystem = await hre.ethers.getContractFactory("VotingSystem");
-  const dummySystem = await VotingSystem.deploy(deployer.address, "Dummy", "QMDummyImageCid");
+  const dummySystem = await VotingSystem.deploy(deployer.address, "Dummy", "QMDummyImageCid", {
+    maxFeePerGas: hre.ethers.parseUnits("50", "gwei"),
+    maxPriorityFeePerGas: hre.ethers.parseUnits("50", "gwei")
+  });
   await dummySystem.waitForDeployment();
   const dummyAddress = await dummySystem.getAddress();
   console.log(`占位 VotingSystem 已部署到: ${dummyAddress}`);
