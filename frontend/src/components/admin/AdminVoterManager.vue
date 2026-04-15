@@ -12,19 +12,35 @@
       </div>
     </div>
 
-    <div v-if="voterStats.total >= 0" class="voter-stats">
-      已注册：<strong>{{ voterStats.total }}</strong> 人 |
-      已领票（本项目）：<strong>{{ voterStats.claimed }}</strong> 人
+    <div v-if="voterStats.total >= 0" class="voter-stats" style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        已注册：<strong>{{ voterStats.total }}</strong> 人 |
+        已领票（本项目）：<strong>{{ voterStats.claimed }}</strong> 人
+      </div>
+      <div>
+        <!-- 保留搜索框占位，选民搜索在后台处理为更合理方案 -->
+      </div>
     </div>
 
     <div class="batch-list">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="font-weight: bold; font-size: 14px;">批量添加选民</span>
+        <input 
+          v-model="searchQuery" 
+          class="input-field" 
+          style="width: 250px; padding: 4px 10px;" 
+          placeholder="在下方输入框中检索学号..." 
+        />
+      </div>
       <div class="batch-header">
         <span class="header-label">学号</span>
         <span class="header-label">密码</span>
         <span class="spacer"></span>
       </div>
 
-      <div v-for="(item, index) in voterItems" :key="index" class="batch-row">
+      <div v-if="filteredItems.length === 0" style="text-align: center; color: #999; padding: 10px;">没有包含 "{{ searchQuery }}" 的输入</div>
+
+      <div v-for="(item, index) in filteredItems" :key="index" class="batch-row">
         <input
           v-model="item.studentId"
           class="input-field"
@@ -40,7 +56,7 @@
           class="btn-icon btn-remove"
           :disabled="voterItems.length <= 1"
           title="删除"
-          @click="removeVoter(index)"
+          @click="removeVoterByRef(item)"
         >
           ✕
         </button>
@@ -68,7 +84,7 @@
 </template>
 
 <script setup>
-import { toRef } from "vue";
+import { computed, ref, toRef } from "vue";
 import { useAdminVoterBatch } from "../../composables/useAdminVoterBatch.js";
 
 const props = defineProps({
@@ -80,6 +96,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["submit", "import-excel"]);
+const searchQuery = ref("");
 
 const {
   voterItems,
@@ -89,6 +106,18 @@ const {
   addVoter,
   removeVoter,
 } = useAdminVoterBatch(toRef(props, "resetKey"));
+
+const filteredItems = computed(() => {
+  if (!searchQuery.value.trim()) return voterItems.value;
+  return voterItems.value.filter(v => v.studentId.includes(searchQuery.value.trim()));
+});
+
+function removeVoterByRef(targetItem) {
+  const index = voterItems.value.indexOf(targetItem);
+  if (index !== -1) {
+    removeVoter(index);
+  }
+}
 
 function handleExcelInput(event) {
   const file = event.target.files?.[0];

@@ -232,7 +232,10 @@ export function useRealtimeVoteBoard(props, rankChartEl) {
     if (rankChart) {
       const ranking = [...rankedCandidates.value].slice(0, 6).reverse();
       rankChart.setOption({
-        animationDuration: 500,
+        animationDuration: 1000,
+        animationDurationUpdate: 800,
+        animationEasing: 'cubicOut',
+        animationEasingUpdate: 'cubicOut',
         backgroundColor: "transparent",
         grid: {
           left: 12,

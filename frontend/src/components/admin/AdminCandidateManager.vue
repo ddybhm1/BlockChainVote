@@ -91,7 +91,15 @@
     </template>
 
     <div v-if="candidates.length" class="table-block">
-      <h3>已添加的候选人</h3>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="margin: 0;">已添加的候选人</h3>
+        <input
+          v-model="searchQuery"
+          class="input-field"
+          style="width: 250px; padding: 6px 12px; margin: 0;"
+          placeholder="搜索候选人名称或 CID..."
+        />
+      </div>
       <table class="candidate-table">
         <thead>
           <tr>
@@ -103,7 +111,10 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(candidate, index) in candidates" :key="index">
+          <tr v-if="filteredCandidates.length === 0">
+            <td colspan="5" style="text-align: center; color: #999; padding: 20px;">未找到匹配的候选人</td>
+          </tr>
+          <tr v-for="(candidate, index) in filteredCandidates" :key="index">
             <td>{{ index }}</td>
             <td>{{ candidate.name }}</td>
             <td class="cid-cell">{{ candidate.cid }}</td>
@@ -117,7 +128,7 @@
 </template>
 
 <script setup>
-import { toRef } from "vue";
+import { computed, ref, toRef } from "vue";
 import { useAdminCandidateBatch } from "../../composables/useAdminCandidateBatch.js";
 
 const props = defineProps({
@@ -128,6 +139,18 @@ const props = defineProps({
 });
 
 defineEmits(["submit"]);
+
+const searchQuery = ref("");
+
+const filteredCandidates = computed(() => {
+  if (!searchQuery.value.trim()) return props.candidates;
+  const q = searchQuery.value.toLowerCase();
+  return props.candidates.filter(c => 
+    c.name.toLowerCase().includes(q) || 
+    c.cid.toLowerCase().includes(q) ||
+    c.manifestoCid.toLowerCase().includes(q)
+  );
+});
 
 const {
   batchItems,

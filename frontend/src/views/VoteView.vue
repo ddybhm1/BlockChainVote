@@ -34,7 +34,7 @@
               <div class="stat-icon" style="background: #fef3c7; color: #f59e0b;">📋</div>
               <div class="stat-content">
                 <div class="stat-label">待投项目</div>
-                <div class="stat-value">{{ todoCount }}</div>
+                <div class="stat-value"><AnimatedNumber :value="todoCount" /></div>
               </div>
             </el-card>
           </el-col>
@@ -43,7 +43,7 @@
               <div class="stat-icon" style="background: #dbeafe; color: #3b82f6;">✓</div>
               <div class="stat-content">
                 <div class="stat-label">已完成</div>
-                <div class="stat-value">{{ votedCount }}</div>
+                <div class="stat-value"><AnimatedNumber :value="votedCount" /></div>
               </div>
             </el-card>
           </el-col>
@@ -52,7 +52,7 @@
               <div class="stat-icon" style="background: #dbeafe; color: #3b82f6;">⏳</div>
               <div class="stat-content">
                 <div class="stat-label">已领票待投</div>
-                <div class="stat-value">{{ claimedPendingCount }}</div>
+                <div class="stat-value"><AnimatedNumber :value="claimedPendingCount" /></div>
               </div>
             </el-card>
           </el-col>
@@ -133,6 +133,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ethers } from "ethers";
 import ElectionSummaryCard from "../components/dashboard/ElectionSummaryCard.vue";
+import AnimatedNumber from "../components/AnimatedNumber.vue";
 import { markVoted } from "../services/api.js";
 import { ELECTION_ABI } from "../services/contract.js";
 import { useAuthStore } from "../stores/auth.js";

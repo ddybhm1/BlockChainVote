@@ -82,6 +82,11 @@
              </div>
           </el-card>
 
+          <!-- Warning for empty project -->
+          <el-alert v-if="activeMenu !== 'overview' && activeMenu !== 'projects' && !selectedAddr" 
+                    title="请先在【项目管理】中选中一个项目，然后再进行对应数据管理" 
+                    type="warning" show-icon style="margin-bottom: 20px" />
+
           <!-- 1. Overview Board -->
           <div v-show="activeMenu === 'overview'">
             <el-row :gutter="20">
@@ -163,35 +168,35 @@
           </div>
 
           <!-- 3. Candidates -->
-          <div v-show="activeMenu === 'candidates'">
-            <el-card shadow="never" class="section-card" body-style="padding:0">
-              <AdminCandidateManager
-                :status-started="status.started"
-                :submitting="submitting"
-                :candidates="candidates"
-                :reset-key="candidateResetKey"
-                @submit="handleBatchAdd"
-              />
-            </el-card>
+          <div v-show="activeMenu === 'candidates' && selectedAddr">
+            <div v-if="message" class="alert" :class="messageOk ? 'alert-success' : 'alert-error'" style="margin-bottom: 12px">
+              {{ message }}
+            </div>
+            <AdminCandidateManager
+              :candidates="candidatesList"
+              :status-started="status.started"
+              :submitting="submitting"
+              :reset-key="candidateResetKey"
+              @submit="handleBatchAdd"
+            />
           </div>
 
           <!-- 4. Voters -->
-          <div v-show="activeMenu === 'voters'">
-            <el-card shadow="never" class="section-card" body-style="padding:0">
-              <AdminVoterManager
-                :submitting="voterSubmitting"
-                :message="voterMessage"
-                :message-ok="voterMessageOk"
-                :voter-stats="voterStats"
-                :reset-key="voterResetKey"
-                @submit="handleBatchRegister"
-                @import-excel="handleExcelImport"
-              />
-            </el-card>
+          <div v-show="activeMenu === 'voters' && selectedAddr">
+            <div v-if="voterMessage" class="alert" :class="voterMessageOk ? 'alert-success' : 'alert-error'" style="margin-bottom: 12px">
+              {{ voterMessage }}
+            </div>
+            <AdminVoterManager
+              :voter-stats="voterStats"
+              :submitting="voterSubmitting"
+              :reset-key="voterResetKey"
+              @submit="handleBatchRegister"
+              @import-excel="handleExcelImport"
+            />
           </div>
 
           <!-- 5. Logs Console -->
-          <div v-show="activeMenu === 'logs'">
+          <div v-show="activeMenu === 'logs' && selectedAddr">
             <div class="console-wrapper">
               <AdminLogsPanel
                 :transaction-logs="transactionLogs"
@@ -217,23 +222,23 @@ import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ethers } from "ethers";
 import { Monitor, DataLine, FolderOpened, UserFilled, Tickets, List, VideoPlay, User, Cpu, WarnTriangleFilled } from '@element-plus/icons-vue';
 
-import AdminCandidateManager from "../components/admin/AdminCandidateManager.vue";
 import AdminLogsPanel from "../components/admin/AdminLogsPanel.vue";
 import AdminProjectSidebar from "../components/admin/AdminProjectSidebar.vue";
+import AdminCandidateManager from "../components/admin/AdminCandidateManager.vue";
 import AdminVoterManager from "../components/admin/AdminVoterManager.vue";
 import { useWalletStore } from "../stores/wallet.js";
 import { useVotingStore } from "../stores/voting.js";
 import { ELECTION_ABI } from "../services/contract.js";
 import { 
-  registerVoter, 
-  getVotersCount,
-  uploadVotersExcel,
   getTransactionLogs,
   getSecurityLogs,
   logTransaction,
   setVotingTime,
   uploadToIPFS,
-  syncElectionToBackend
+  syncElectionToBackend,
+  getVotersCount,
+  uploadVotersExcel,
+  registerVoter
 } from "../services/api.js";
 
 // Layout state
@@ -274,201 +279,30 @@ function goToProjectsWithFilter(filter) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// ==================== 创建项目向导 ====================
-const wizardVisible = ref(false);
-const wizardStep = ref(1); // 1: 基本信息, 2: 候选人, 3: 选民, 4: 启动投票
-const wizardData = reactive({
-  projectName: "",
-  sbtImageCid: "",
-  sbtImageUploading: false,
-  sbtImageError: "",
-  startTime: "",
-  endTime: "",
-  createdAddr: "", // 新合约地址
-  createdTitle: ""
-});
-const wizardStepSubmitting = ref(false);
-const wizardMsg = ref("");
-const wizardMsgOk = ref(false);
-
-function openWizard() {
-  wizardVisible.value = true;
-  wizardStep.value = 1;
-  wizardData.projectName = "";
-  wizardData.sbtImageCid = "";
-  wizardData.sbtImageUploading = false;
-  wizardData.sbtImageError = "";
-  wizardData.startTime = "";
-  wizardData.endTime = "";
-  wizardData.createdAddr = "";
-  wizardData.createdTitle = "";
-  wizardMsg.value = "";
-  wizardMsgOk.value = false;
-}
-
-function closeWizard() {
-  wizardVisible.value = false;
-}
-
-// 上传 IPFS 图片（给向导用）
-async function handleWizardUploadImage(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-
-  wizardData.sbtImageUploading = true;
-  wizardData.sbtImageError = "";
-  try {
-    const result = await uploadToIPFS(file);
-    wizardData.sbtImageCid = result.cid;
-  } catch (e) {
-    wizardData.sbtImageError = "图片上传失败：" + (e.response?.data?.detail || e.message);
-  } finally {
-    wizardData.sbtImageUploading = false;
-    event.target.value = "";
-  }
-}
-
-// 验证第 1 步的数据
-function wizardStep1Valid() {
-  return wizardData.projectName.trim() &&
-         wizardData.sbtImageCid.trim() &&
-         wizardData.startTime &&
-         wizardData.endTime &&
-         new Date(wizardData.endTime) > new Date(wizardData.startTime);
-}
-
-// 部署第 1 步：创建合约并保存时间（不启动投票，只部署合约）
-async function handleWizardStep1Deploy() {
-  if (!wizardStep1Valid()) {
-    wizardMsg.value = "请检查所有输入：项目名称、SBT 图片、开始时间和结束时间";
-    wizardMsgOk.value = false;
-    return;
-  }
-
-  wizardStepSubmitting.value = true;
-  wizardMsg.value = "正在将项目部署到区块链...";
-  wizardMsgOk.value = true;
-
-  try {
-    const factory = await voting.getFactoryWriteContract();
-    const tx = await factory.createElection(
-      wizardData.projectName.trim(),
-      wizardData.sbtImageCid.trim()
-    );
-    
-    wizardMsg.value = "交易已发送，等待链上确认...";
-    const receipt = await tx.wait();
-    
-    // 解析新合约地址
-    const iface = factory.interface;
-    let newAddr = "";
-    for (const log of receipt.logs) {
-      try {
-        const parsed = iface.parseLog(log);
-        if (parsed && parsed.name === "ElectionCreated") {
-          newAddr = parsed.args.electionAddr;
-          break;
-        }
-      } catch {}
-    }
-
-    if (!newAddr) throw new Error("无法解析新合约地址");
-
-    wizardData.createdAddr = newAddr;
-    wizardData.createdTitle = wizardData.projectName;
-    
-    // 把项目信息同步到后端数据库
-    try {
-      const startTs = Math.floor(new Date(wizardData.startTime).getTime() / 1000);
-      const endTs = Math.floor(new Date(wizardData.endTime).getTime() / 1000);
-      await syncElectionToBackend(newAddr, wizardData.projectName, startTs, endTs);
-    } catch (e) {
-      console.warn("后端同步项目可能有问题:", e);
-    }
-
-    wizardMsg.value = "✓ 合约部署成功！现在请继续添加候选人...";
-    wizardMsgOk.value = true;
-    
-    // 自动加载最新的项目列表
-    await voting.loadElections();
-    
-    // 前进到第 2 步
-    wizardStep.value = 2;
-  } catch (e) {
-    wizardMsg.value = "部署失败：" + (e.reason || e.message);
-    wizardMsgOk.value = false;
-  } finally {
-    wizardStepSubmitting.value = false;
-  }
-}
-
-// 前进到第 4 步（可选 2、3 步）
-async function wizardGoToStep4() {
-  if (!wizardData.createdAddr) {
-    wizardMsg.value = "请先完成第 1 步（合约部署）";
-    return;
-  }
-  wizardStep.value = 4;
-  wizardMsg.value = "";
-}
-
-// 启动投票（第 4 步）
-async function handleWizardStep4Start() {
-  if (!wizardData.createdAddr || !wizardData.startTime || !wizardData.endTime) {
-    wizardMsg.value = "缺少必要参数";
-    wizardMsgOk.value = false;
-    return;
-  }
-
-  wizardStepSubmitting.value = true;
-  wizardMsg.value = "正在启动投票...";
-  wizardMsgOk.value = true;
-
-  try {
-    const startTs = Math.floor(new Date(wizardData.startTime).getTime() / 1000);
-    const endTs = Math.floor(new Date(wizardData.endTime).getTime() / 1000);
-
-    const res = await setVotingTime(wizardData.createdAddr, startTs, endTs);
-    
-    wizardMsg.value = "✓ 投票已正式启动！项目现已生效。";
-    wizardMsgOk.value = true;
-
-    // 刷新项目列表并自动选中新项目
-    await voting.loadElections();
-    setTimeout(() => {
-      activeMenu.value = 'projects';
-      handleSelect(wizardData.createdAddr);
-      closeWizard();
-    }, 1500);
-  } catch (e) {
-    wizardMsg.value = "启动失败：" + (e.response?.data?.detail || e.message);
-    wizardMsgOk.value = false;
-  } finally {
-    wizardStepSubmitting.value = false;
-  }
-}
-
-// 创建项目
-const newTitle = ref("");
-const newSbtImageCid = ref("");
-const creating = ref(false);
-const globalMsg = ref("");
-const globalMsgOk = ref(false);
-
+// ==================== 项目与表单状态 ====================
 // 选中项目
 const selectedAddr = ref("");
 const selectedTitle = ref("");
 const isAdmin = ref(false);
+const status = reactive({ started: false, ended: false, candidates: 0 });
+
+const newTitle = ref("");
+const newSbtImageCid = ref("");
+const creating = ref(false);
+const globalMsg = ref("");
+const globalMsgOk = ref(true);
 const submitting = ref(false);
 const message = ref("");
 const messageOk = ref(false);
-const candidates = ref([]);
-const status = reactive({ started: false, ended: false, candidates: 0 });
+
+// ==================== 候选人与选民状态 ====================
+const candidatesList = ref([]);
+const candidateResetKey = ref(0);
+
+const voterStats = reactive({ total: 0, claimed: 0 });
 const voterSubmitting = ref(false);
 const voterMessage = ref("");
 const voterMessageOk = ref(false);
-const voterStats = reactive({ total: -1, claimed: 0 });
-const candidateResetKey = ref(0);
 const voterResetKey = ref(0);
 
 // ==================== 监控日志 ====================
@@ -728,24 +562,25 @@ async function loadData() {
       deployedEndTs.value = 0;
     }
 
-    const [names, cids, votes] = all;
-    candidates.value = names.map((n, i) => ({
+    const [names, cids, manifestoCids, votes] = all;
+    status.candidates = names.length;
+    
+    candidatesList.value = names.map((n, i) => ({
       name: n,
       cid: cids[i],
+      manifestoCid: manifestoCids[i],
       votes: Number(votes[i]),
+      isActive: true
     }));
-    status.candidates = candidates.value.length;
   } catch (e) {
     console.error("加载数据失败:", e);
   }
 }
 
-// ==================== 候选人操作 ====================
+// ==================== 候选人与选民管理 ====================
 async function handleBatchAdd(items) {
   if (!items.length) return;
-  
-  // 如果在向导中，使用新创建的地址
-  const targetAddr = wizardVisible.value && wizardData.createdAddr ? wizardData.createdAddr : selectedAddr.value;
+  const targetAddr = selectedAddr.value;
   if (!targetAddr) {
     message.value = "请先选择项目";
     messageOk.value = false;
@@ -800,9 +635,8 @@ async function handleBatchAdd(items) {
   }
 }
 
-// ==================== 选民管理 ====================
 async function loadVoterStats() {
-  const targetAddr = wizardVisible.value && wizardData.createdAddr ? wizardData.createdAddr : selectedAddr.value;
+  const targetAddr = selectedAddr.value;
   if (!targetAddr) return;
 
   try {
@@ -817,9 +651,9 @@ async function loadVoterStats() {
 async function handleExcelImport(file) {
   if (!file) return;
 
-  const targetAddr = wizardVisible.value && wizardData.createdAddr ? wizardData.createdAddr : selectedAddr.value;
+  const targetAddr = selectedAddr.value;
   if (!targetAddr) {
-    voterMessage.value = "请先选择或创建项目";
+    voterMessage.value = "请先选择项目";
     voterMessageOk.value = false;
     return;
   }
@@ -837,6 +671,7 @@ async function handleExcelImport(file) {
         voterMessage.value += ` (部分错误: ${res.errors.join('; ')})`;
         voterMessageOk.value = false;
       }
+      voterResetKey.value += 1;
     } else {
       voterMessage.value = res.message || "导入失败";
       voterMessageOk.value = false;
@@ -853,9 +688,9 @@ async function handleExcelImport(file) {
 async function handleBatchRegister(items) {
   if (!items.length) return;
 
-  const targetAddr = wizardVisible.value && wizardData.createdAddr ? wizardData.createdAddr : selectedAddr.value;
+  const targetAddr = selectedAddr.value;
   if (!targetAddr) {
-    voterMessage.value = "请先选择或创建项目";
+    voterMessage.value = "请先选择项目";
     voterMessageOk.value = false;
     return;
   }
@@ -890,6 +725,7 @@ async function handleBatchRegister(items) {
   voterSubmitting.value = false;
 }
 
+// ==================== 监控日志 ====================
 async function loadTransactionLogs() {
   loadingTxLogs.value = true;
   try {

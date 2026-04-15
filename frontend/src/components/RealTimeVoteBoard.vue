@@ -14,12 +14,12 @@
           {{ connectionText }}
         </div>
         <div class="metric-block">
-          <span class="metric-value">{{ totals.voted }}</span>
+          <span class="metric-value"><AnimatedNumber :value="totals.voted" /></span>
           <span class="metric-label">已确认投票</span>
         </div>
         <div class="metric-inline">
-          <span>授权选民 {{ totals.voters }}</span>
-          <span>候选人 {{ totals.candidates }}</span>
+          <span>授权选民 <AnimatedNumber :value="totals.voters" /></span>
+          <span>候选人 <AnimatedNumber :value="totals.candidates" /></span>
           <span>{{ statusText }}</span>
         </div>
       </div>
@@ -41,22 +41,38 @@
 
         <div ref="rankChartEl" class="chart chart-compact"></div>
 
-        <div v-if="rankedCandidates.length" class="leaderboard">
-          <div
-            v-for="(candidate, index) in rankedCandidates"
-            :key="candidate.id"
-            class="leader-row"
-            :class="{ 'leader-hot': latestVote && latestVote.candidateId === candidate.id }"
-          >
-            <div class="leader-rank">{{ index + 1 }}</div>
-            <div class="leader-main">
-              <strong>{{ candidate.name }}</strong>
-              <span>{{ candidate.votes }} 票 · {{ candidateShare(candidate.votes) }}%</span>
-            </div>
-            <div class="leader-trend">
-              <span v-if="latestVote && latestVote.candidateId === candidate.id" class="rise-chip">+1</span>
-              <span v-else>{{ index === 0 ? "领跑" : "追赶中" }}</span>
-            </div>
+        <div v-if="rankedCandidates.length" class="leaderboard-wrapper">
+          <div class="leaderboard">
+            <TransitionGroup name="flip-list">
+              <div
+                v-for="(candidate, index) in rankedCandidates"
+                :key="candidate.id"
+                class="leader-row race-bar-row"
+                :class="{ 'leader-hot': latestVote && latestVote.candidateId === candidate.id }"
+              >
+                <div class="race-bar-bg">
+                  <div class="race-bar-fill" :style="{ width: Math.max(candidateShare(candidate.votes), 2) + '%' }"></div>
+                </div>
+                <div class="leader-content">
+                  <div class="leader-rank">{{ index + 1 }}</div>
+                  <el-avatar
+                    :size="36"
+                    :src="candidate.avatarUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${candidate.id}`"
+                    class="leader-avatar"
+                  />
+                  <div class="leader-main">
+                    <strong>{{ candidate.name }}</strong>
+                  </div>
+                  <div class="leader-stats">
+                    <span class="votes-num"><AnimatedNumber :value="candidate.votes" /> 票</span>
+                    <span class="share-num">{{ candidateShare(candidate.votes) }}%</span>
+                    <div class="leader-trend">
+                      <span v-if="latestVote && latestVote.candidateId === candidate.id" class="rise-chip pulse-badge">+1</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </TransitionGroup>
           </div>
         </div>
 
@@ -76,20 +92,25 @@
       </div>
 
       <div v-if="feedEvents.length" class="feed-list">
-        <div
-          v-for="event in feedEvents"
-          :key="`${event.txHash}-${event.sequence}`"
-          class="feed-item"
-          :class="{ 'feed-hot': latestVote && latestVote.txHash === event.txHash }"
-        >
-          <span class="feed-time">{{ formatClock(event.blockTime) }}</span>
-          <strong>{{ candidateName(event.candidateId) }}</strong>
-          <span class="feed-text">获得 1 票</span>
-          <span class="feed-voter">{{ shortAddress(event.voter) }}</span>
-          <a :href="txUrl(event.txHash)" target="_blank" rel="noreferrer">查看交易</a>
-        </div>
-      </div>
-
+          <TransitionGroup name="bubble-pop">
+            <div
+              v-for="event in feedEvents"
+              :key="`${event.txHash}-${event.sequence}`"
+              class="feed-item"
+              :class="{ 'feed-hot': latestVote && latestVote.txHash === event.txHash }"
+            >
+              <span class="feed-time">{{ formatClock(event.blockTime) }}</span>
+              <el-avatar
+                :size="24"
+                :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${event.candidateId}`"
+                class="feed-avatar"
+              />
+              <strong>{{ candidateName(event.candidateId) }}</strong>
+              <span class="feed-text">获得 1 票</span>
+              <span class="feed-voter">{{ shortAddress(event.voter) }}</span>
+              <a :href="txUrl(event.txHash)" target="_blank" rel="noreferrer">查看交易</a>
+            </div>
+          </TransitionGroup>        </div>
       <div v-else class="empty-state">
         暂时还没有抓到新的投票事件，保持页面打开后会自动接收链上更新。
       </div>
@@ -99,6 +120,7 @@
 
 <script setup>
 import { ref } from "vue";
+import AnimatedNumber from "./AnimatedNumber.vue";
 import { useRealtimeVoteBoard } from "../composables/useRealtimeVoteBoard.js";
 
 const props = defineProps({
@@ -269,6 +291,12 @@ const {
 
 .screen-card {
   padding: 20px;
+  backdrop-filter: blur(16px) saturate(180%);
+  background: rgba(11, 25, 44, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 8px 32px 0 rgba(0, 0, 0, 0.37),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .screen-header {
@@ -342,13 +370,24 @@ const {
     box-shadow 0.25s ease;
 }
 
+@keyframes pulse-glow {
+  0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4); }
+  70% { box-shadow: 0 0 0 15px rgba(56, 189, 248, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+}
+
 .leader-row:hover {
   transform: translateY(-1px);
 }
 
 .leader-hot {
-  border-color: rgba(251, 146, 60, 0.58);
-  box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.18), 0 12px 28px rgba(251, 146, 60, 0.12);
+  animation: pulse-glow 2s infinite;
+  border-color: rgba(56, 189, 248, 0.5) !important;
+  background: rgba(56, 189, 248, 0.1) !important;
+}
+
+.flip-list-move {
+  transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .leader-rank {
@@ -415,8 +454,21 @@ const {
 }
 
 .feed-hot {
-  border-color: rgba(61, 217, 182, 0.45);
-  box-shadow: 0 0 0 1px rgba(61, 217, 182, 0.16);
+  position: relative;
+  overflow: hidden;
+}
+
+.feed-hot::after {
+  content: "";
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  animation: scan 1.5s ease;
+}
+
+@keyframes scan {
+  100% { left: 100%; }
 }
 
 .feed-time,
@@ -469,5 +521,115 @@ const {
     grid-template-columns: 1fr;
     gap: 6px;
   }
+}
+.race-bar-row {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.4) !important;
+  margin-bottom: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.race-bar-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.race-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.3) 0%, rgba(99, 102, 241, 0.6) 100%);
+  transition: width 1s cubic-bezier(0.25, 1, 0.5, 1);
+  border-right: 2px solid #60a5fa;
+}
+
+.leader-hot .race-bar-fill {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.4) 0%, rgba(239, 68, 68, 0.7) 100%);
+  border-right: 2px solid #fbbf24;
+}
+
+.leader-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  width: 100%;
+}
+
+.leader-avatar {
+  margin-right: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.leader-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+
+.votes-num {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.share-num {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-variant-numeric: tabular-nums;
+  width: 40px;
+  text-align: right;
+}
+
+.pulse-badge {
+  background: #ef4444;
+  color: #fff;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+.bubble-pop-enter-active {
+  transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.bubble-pop-leave-active {
+  transition: all 0.4s ease-in;
+}
+.bubble-pop-enter-from {
+  opacity: 0;
+  transform: translateY(20px) scale(0.9);
+}
+.bubble-pop-leave-to {
+  opacity: 0;
+  transform: translateX(30px);
+}
+.bubble-pop-move {
+  transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.feed-avatar {
+  margin: 0 8px;
+  vertical-align: middle;
+  border: 1px solid rgba(255,255,255,0.2);
+}
+
+.feed-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
 }
 </style>
