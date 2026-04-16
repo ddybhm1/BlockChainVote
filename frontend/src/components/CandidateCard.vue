@@ -38,15 +38,6 @@
       <template v-else>
         <div class="vote-ended-text">投票已经结束</div>
       </template>
-      <a
-        v-if="manifesto"
-        :href="manifesto"
-        target="_blank"
-        class="cid-link"
-        title="在 IPFS 上验证并打开候选人竞选宣言 PDF"
-      >
-        📎 IPFS 验证
-      </a>
     </div>
   </div>
 </template>
@@ -63,6 +54,7 @@ const props = defineProps({
   manifesto: { type: String, default: "" },
   canVote: { type: Boolean, default: false },
   hasVoted: { type: Boolean, default: false },
+  hasAbstained: { type: Boolean, default: false },
   votingActive: { type: Boolean, default: false },
   votingEnded: { type: Boolean, default: false },
 });
@@ -71,6 +63,7 @@ defineEmits(["vote"]);
 
 const buttonText = computed(() => {
   if (props.votingEnded) return "投票已经结束";
+  if (props.hasAbstained) return "✓ 已弃票";
   if (props.hasVoted) return "✓ 已投票";
   if (!props.votingActive) return "投票未开始";
   if (!props.canVote) return "无投票权";

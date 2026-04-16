@@ -19,6 +19,7 @@ export function useElectionProjectDetail(electionAddressRef) {
   const detailLoading = ref(false);
   const statusSyncing = ref(false);
   const voteTxHash = ref("");
+  const voteSuccessMessage = ref("");
   const voteError = ref("");
   const pageMessage = reactive({
     type: "success",
@@ -152,10 +153,12 @@ export function useElectionProjectDetail(electionAddressRef) {
 
     voteError.value = "";
     voteTxHash.value = "";
+    voteSuccessMessage.value = "";
 
     try {
       const txHash = await voting.castVote(candidateId);
       voteTxHash.value = txHash;
+      voteSuccessMessage.value = "投票成功，链上交易已确认，SBT 纪念徽章也已铸造。";
       
       saveLocalVoteTxHash(selectedDashboardItem.value.election_address, txHash);
       
@@ -169,6 +172,32 @@ export function useElectionProjectDetail(electionAddressRef) {
       await loadElectionData({ reloadDashboard: true });
     } catch (err) {
       voteError.value = err.response?.data?.detail || err.message || "投票失败";
+    }
+  }
+
+  async function handleAbstain() {
+    if (!selectedDashboardItem.value) return;
+
+    voteError.value = "";
+    voteTxHash.value = "";
+    voteSuccessMessage.value = "";
+
+    try {
+      const txHash = await voting.castAbstain();
+      voteTxHash.value = txHash;
+      voteSuccessMessage.value = "已提交弃票，链上交易已确认，SBT 纪念徽章也已铸造。";
+
+      saveLocalVoteTxHash(selectedDashboardItem.value.election_address, txHash);
+
+      try {
+        await markVoted(selectedDashboardItem.value.election_address, wallet.address);
+      } catch (markErr) {
+        console.warn("标记弃票状态失败，但弃票已在链上完成:", markErr);
+      }
+
+      await loadElectionData({ reloadDashboard: true });
+    } catch (err) {
+      voteError.value = err.response?.data?.detail || err.message || "弃票失败";
     }
   }
 
@@ -208,6 +237,7 @@ export function useElectionProjectDetail(electionAddressRef) {
     authorizeLoading,
     detailLoading,
     voteTxHash,
+    voteSuccessMessage,
     voteError,
     pageMessage,
     selectedDashboardItem,
@@ -221,5 +251,6 @@ export function useElectionProjectDetail(electionAddressRef) {
     goBackToDashboard,
     handleAuthorize,
     handleVote,
+    handleAbstain,
   };
 }

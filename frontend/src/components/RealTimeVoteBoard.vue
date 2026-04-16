@@ -40,45 +40,6 @@
         </div>
 
         <div ref="rankChartEl" class="chart chart-compact"></div>
-
-        <div v-if="rankedCandidates.length" class="leaderboard-wrapper">
-          <div class="leaderboard">
-            <TransitionGroup name="flip-list">
-              <div
-                v-for="(candidate, index) in rankedCandidates"
-                :key="candidate.id"
-                class="leader-row race-bar-row"
-                :class="{ 'leader-hot': latestVote && latestVote.candidateId === candidate.id }"
-              >
-                <div class="race-bar-bg">
-                  <div class="race-bar-fill" :style="{ width: Math.max(candidateShare(candidate.votes), 2) + '%' }"></div>
-                </div>
-                <div class="leader-content">
-                  <div class="leader-rank">{{ index + 1 }}</div>
-                  <el-avatar
-                    :size="36"
-                    :src="candidate.avatarUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${candidate.id}`"
-                    class="leader-avatar"
-                  />
-                  <div class="leader-main">
-                    <strong>{{ candidate.name }}</strong>
-                  </div>
-                  <div class="leader-stats">
-                    <span class="votes-num"><AnimatedNumber :value="candidate.votes" /> 票</span>
-                    <span class="share-num">{{ candidateShare(candidate.votes) }}%</span>
-                    <div class="leader-trend">
-                      <span v-if="latestVote && latestVote.candidateId === candidate.id" class="rise-chip pulse-badge">+1</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </TransitionGroup>
-          </div>
-        </div>
-
-        <div v-else class="empty-state">
-          当前项目还没有候选人数据。
-        </div>
       </section>
     </div>
 
@@ -390,18 +351,6 @@ const {
   transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.leader-rank {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #38bdf8, #2563eb);
-  font-weight: 800;
-  font-size: 16px;
-}
-
 .leader-main {
   min-width: 0;
   display: flex;
@@ -581,14 +530,6 @@ const {
   font-size: 1.1rem;
   font-weight: 700;
   color: #fff;
-}
-
-.share-num {
-  font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.7);
-  font-variant-numeric: tabular-nums;
-  width: 40px;
-  text-align: right;
 }
 
 .pulse-badge {

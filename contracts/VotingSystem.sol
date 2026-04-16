@@ -19,6 +19,7 @@ contract VotingSystem {
     uint256 public candidateCount;
     uint256 public totalAuthorizedVoters;
     uint256 public totalVotesCast;
+    uint256 public totalAbstainVotes;
 
     string public constant name = "BlockChainVote SBT";
     string public constant symbol = "BCVSBT";
@@ -36,6 +37,7 @@ contract VotingSystem {
     
     mapping(address => bool) public isAuthorized;
     mapping(address => bool) public hasVoted;
+    mapping(address => bool) public hasAbstained;
     
     mapping(uint256 => address) private _badgeOwners;
     mapping(address => uint256) private _badgeBalances;
@@ -46,6 +48,7 @@ contract VotingSystem {
 
     event VoterAuthorized(address indexed voter);
     event Voted(address indexed voter, uint256 indexed candidateId);
+    event Abstained(address indexed voter);
     event CandidateAdded(uint256 indexed candidateId, string name, string imageCid, string manifestoCid);
     event VotingStarted();
     event VotingEnded();
@@ -168,6 +171,7 @@ contract VotingSystem {
         require(_candidateId < candidateCount, "Invalid candidate");
 
         hasVoted[msg.sender] = true;
+        hasAbstained[msg.sender] = false;
         candidates[_candidateId].voteCount++;
         totalVotesCast++;
 
@@ -177,6 +181,22 @@ contract VotingSystem {
         badgeToCandidate[mintedTokenId] = _candidateId;
 
         emit Voted(msg.sender, _candidateId);
+        emit BadgeMinted(msg.sender, mintedTokenId, "Voter Witness SBT");
+    }
+
+    function abstain() external duringVoting {
+        require(isAuthorized[msg.sender], "Not authorized");
+        require(!hasVoted[msg.sender], "Already voted");
+
+        hasVoted[msg.sender] = true;
+        hasAbstained[msg.sender] = true;
+        totalVotesCast++;
+        totalAbstainVotes++;
+
+        uint256 mintedTokenId = _mintBadge(msg.sender);
+        badgeToCandidate[mintedTokenId] = type(uint256).max;
+
+        emit Abstained(msg.sender);
         emit BadgeMinted(msg.sender, mintedTokenId, "Voter Witness SBT");
     }
 

@@ -51,7 +51,7 @@
       <div v-if="voting.error" class="alert alert-error">{{ voting.error }}</div>
 
       <div v-if="voteTxHash" class="alert alert-success">
-        投票成功，链上交易已确认，SBT 纪念徽章也已铸造。
+        {{ voteSuccessMessage || "操作成功，链上交易已确认。" }}
         <a :href="`https://sepolia.etherscan.io/tx/${voteTxHash}`" target="_blank" rel="noreferrer">
           {{ voteTxHash.slice(0, 22) }}...
         </a>
@@ -72,12 +72,24 @@
           :photo-url="candidate.photoUrl"
           :manifesto="candidate.manifesto"
           :can-vote="canVote"
-          :has-voted="selectedDashboardItem.status === 'VOTED' || voting.hasVoted"
+          :has-voted="voting.hasVoted"
+          :has-abstained="voting.hasAbstained"
           :voting-active="voting.votingStarted && !voting.votingEnded"
           :voting-ended="voting.votingEnded"
           @vote="handleVote"
         />
       </div>
+
+      <section
+        v-if="!detailLoading && !voting.loading && voting.candidates.length > 0 && !voting.votingEnded"
+        class="card abstain-panel"
+      >
+        <p class="abstain-title">不支持任何候选人？</p>
+        <p class="abstain-desc">你可以选择弃票，本次投票资格会被视为已使用，且不会计入任一候选人。</p>
+        <button class="btn abstain-btn" type="button" :disabled="!canVote" @click="handleAbstain">
+          我不支持任何候选人，选择弃票
+        </button>
+      </section>
 
       <div v-if="!detailLoading && !voting.loading && voting.candidates.length === 0" class="card empty-card">
         <p class="empty-title">暂无候选人</p>
@@ -117,6 +129,7 @@ const {
   authorizeLoading,
   detailLoading,
   voteTxHash,
+  voteSuccessMessage,
   voteError,
   pageMessage,
   selectedDashboardItem,
@@ -129,6 +142,7 @@ const {
   goBackToDashboard,
   handleAuthorize,
   handleVote,
+  handleAbstain,
 } = useElectionProjectDetail(electionAddress);
 </script>
 
@@ -190,6 +204,40 @@ const {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.abstain-panel {
+  border: 1px solid rgba(180, 83, 9, 0.35);
+  background: linear-gradient(135deg, rgba(255, 251, 235, 0.95) 0%, rgba(254, 243, 199, 0.92) 100%);
+}
+
+.abstain-title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #78350f;
+}
+
+.abstain-desc {
+  margin: 0 0 14px;
+  color: #92400e;
+}
+
+.abstain-btn {
+  width: 100%;
+  border: 1px solid rgba(113, 63, 18, 0.55);
+  background: linear-gradient(135deg, #78716c 0%, #57534e 100%);
+  color: #fef3c7;
+  font-weight: 700;
+}
+
+.abstain-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6b7280 0%, #44403c 100%);
+}
+
+.abstain-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .empty-card {

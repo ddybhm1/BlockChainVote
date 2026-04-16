@@ -117,11 +117,9 @@
       <div v-if="totalPages > 1" class="pagination-container">
         <el-pagination
           v-model:current-page="currentPage"
-          v-model:page-size="itemsPerPage"
-          :page-sizes="[10, 20, 30]"
+          :page-size="itemsPerPage"
           :total="filteredDashboardItems.length"
-          layout="total, sizes, prev, pager, next"
-          @size-change="currentPage = 1"
+          layout="total, prev, pager, next"
         />
       </div>
     </el-main>
@@ -149,7 +147,7 @@ const dashboardLoading = ref(false);
 const chainSyncing = ref(false);
 const searchQuery = ref("");
 const currentPage = ref(1);
-const itemsPerPage = ref(10);
+const itemsPerPage = 3;
 const pageMessage = reactive({
   type: "success",
   text: "",
@@ -218,11 +216,11 @@ const filteredDashboardItems = computed(() => {
   return applyUnifiedSearch(bucketFiltered, searchQuery.value);
 });
 
-const totalPages = computed(() => Math.ceil(filteredDashboardItems.value.length / itemsPerPage.value) || 1);
+const totalPages = computed(() => Math.ceil(filteredDashboardItems.value.length / itemsPerPage) || 1);
 
 const paginatedItems = computed(() => {
-  const start = (currentPage.value - 1) * itemsPerPage.value;
-  const end = start + itemsPerPage.value;
+  const start = (currentPage.value - 1) * itemsPerPage;
+  const end = start + itemsPerPage;
   return filteredDashboardItems.value.slice(start, end);
 });
 

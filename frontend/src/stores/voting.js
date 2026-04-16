@@ -42,8 +42,10 @@ export const useVotingStore = defineStore("voting", () => {
   const votingEnded = ref(false);
   const totalVoters = ref(0);
   const totalVotes = ref(0);
+  const totalAbstain = ref(0);
   const isAuthorized = ref(false);
   const hasVoted = ref(false);
+  const hasAbstained = ref(false);
   const loading = ref(false);
   const error = ref("");
 
@@ -116,8 +118,10 @@ export const useVotingStore = defineStore("voting", () => {
     votingEnded.value = false;
     totalVoters.value = 0;
     totalVotes.value = 0;
+    totalAbstain.value = 0;
     isAuthorized.value = false;
     hasVoted.value = false;
+    hasAbstained.value = false;
     startTime.value = 0;
     endTime.value = 0;
     badge.value = null;
@@ -155,6 +159,11 @@ export const useVotingStore = defineStore("voting", () => {
       votingEnded.value = status[1];
       totalVoters.value = Number(status[3]);
       totalVotes.value = Number(status[4]);
+      try {
+        totalAbstain.value = Number(await contract.totalAbstainVotes());
+      } catch {
+        totalAbstain.value = 0;
+      }
       startTime.value = Number(chainStartTime);
       endTime.value = Number(chainEndTime);
 
@@ -194,6 +203,15 @@ export const useVotingStore = defineStore("voting", () => {
 
       isAuthorized.value = authorized;
       hasVoted.value = voted;
+      if (voted) {
+        try {
+          hasAbstained.value = await contract.hasAbstained(address);
+        } catch {
+          hasAbstained.value = false;
+        }
+      } else {
+        hasAbstained.value = false;
+      }
     } catch (err) {
       console.error("检查选民状态失败:", err);
     }
@@ -250,6 +268,22 @@ export const useVotingStore = defineStore("voting", () => {
     }
 
     hasVoted.value = true;
+    hasAbstained.value = false;
+    return tx.hash;
+  }
+
+  async function castAbstain() {
+    const contract = await getElectionWriteContract();
+    const tx = await contract.abstain();
+    const receipt = await tx.wait();
+
+    if (receipt.status !== 1) {
+      throw new Error("弃票交易失败");
+    }
+
+    hasVoted.value = true;
+    hasAbstained.value = true;
+    totalAbstain.value += 1;
     return tx.hash;
   }
 
@@ -259,8 +293,10 @@ export const useVotingStore = defineStore("voting", () => {
     votingEnded,
     totalVoters,
     totalVotes,
+    totalAbstain,
     isAuthorized,
     hasVoted,
+    hasAbstained,
     loading,
     error,
     currentElection,
@@ -274,6 +310,7 @@ export const useVotingStore = defineStore("voting", () => {
     checkVoterStatus,
     loadBadge,
     castVote,
+    castAbstain,
     getFactoryReadContract,
     getFactoryWriteContract,
     getElectionReadContract,

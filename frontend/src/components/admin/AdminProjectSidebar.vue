@@ -2,10 +2,10 @@
   <div>
     <div class="section" style="border: 1px solid #EBEEF5; padding: 20px; border-radius: 8px; background-color: #fff;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h3 style="margin: 0; padding: 0;">我的投票项目</h3>
+        <h3 style="margin: 0; padding: 0;">工厂项目列表</h3>
       </div>
       <div v-if="!elections.length" class="alert alert-info">
-        暂无投票项目。请先创建一个新项目。
+        当前工厂合约下暂无子项目。请先创建一个新项目。
       </div>
       <div v-else-if="!filteredElections.length" class="alert alert-warning">
         没有找到包含 "{{ searchQuery }}" 的项目。

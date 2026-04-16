@@ -32,10 +32,6 @@
         </div>
       </div>
 
-      <div v-else-if="!searchQuery" class="search-hint">
-        输入项目名称或合约地址进行搜索
-      </div>
-
       <div v-if="!searchQuery && selectedElectionTitle" class="selected-display">
         已选择：<strong>{{ selectedElectionTitle }}</strong>
       </div>
@@ -224,17 +220,6 @@ onMounted(async () => {
   border: 1px solid var(--border, #e5e5e5);
   border-radius: 6px;
   margin-top: 8px;
-}
-
-.search-hint {
-  margin-top: 8px;
-  padding: 12px;
-  text-align: center;
-  font-size: 13px;
-  color: var(--text-secondary, #888);
-  background: white;
-  border: 1px dashed var(--border, #e5e5e5);
-  border-radius: 6px;
 }
 
 .selected-display {

@@ -14,13 +14,13 @@
         active-text-color="#fff"
         @select="handleMenuSelect"
       >
-        <el-menu-item index="overview">
+        <el-menu-item index="project-board">
           <el-icon><DataLine /></el-icon>
-          <span>概览看板</span>
+          <span>管理项目</span>
         </el-menu-item>
-        <el-menu-item index="projects">
+        <el-menu-item index="create-project">
           <el-icon><FolderOpened /></el-icon>
-          <span>项目管理</span>
+          <span>创建新项目</span>
         </el-menu-item>
         <el-menu-item index="candidates">
           <el-icon><UserFilled /></el-icon>
@@ -45,9 +45,6 @@
             <el-breadcrumb-item>管理面板</el-breadcrumb-item>
             <el-breadcrumb-item>{{ activeMenuName }}</el-breadcrumb-item>
           </el-breadcrumb>
-          <el-button v-if="activeMenu === 'projects'" type="primary" @click="$router.push('/admin/create/step1')">
-            + 发起新投票
-          </el-button>
         </div>
       </el-header>
 
@@ -61,7 +58,7 @@
           <el-alert v-if="globalMsg" :title="globalMsg" :type="globalMsgOk ? 'success' : 'error'" show-icon style="margin-bottom: 20px" />
 
           <!-- Context Selector -->
-          <el-card shadow="hover" class="context-card" v-if="activeMenu !== 'overview'">
+          <el-card shadow="hover" class="context-card" v-if="activeMenu !== 'project-board' && activeMenu !== 'create-project'">
              <div style="display: flex; justify-content: space-between; align-items: center;">
                <div style="display: flex; align-items: center;">
                  <span style="font-weight:bold;margin-right:12px;">当前管理项目</span>
@@ -72,26 +69,28 @@
                    {{ status.ended ? '已结束' : (status.started ? '进行中' : '未开始') }}
                  </el-tag>
                </div>
-               <!-- 搜索框 -->
-               <el-input 
-                  v-if="activeMenu === 'projects'" 
-                  v-model="globalSearchQuery" 
-                  placeholder="搜索项目名称..." 
-                  style="width: 200px;" 
-                />
              </div>
           </el-card>
 
           <!-- Warning for empty project -->
-          <el-alert v-if="activeMenu !== 'overview' && activeMenu !== 'projects' && !selectedAddr" 
-                    title="请先在【项目管理】中选中一个项目，然后再进行对应数据管理" 
+          <el-alert v-if="activeMenu !== 'project-board' && activeMenu !== 'create-project' && !selectedAddr" 
+                    title="请先在【管理项目】中选中一个项目，然后再进行对应数据管理" 
                     type="warning" show-icon style="margin-bottom: 20px" />
 
-          <!-- 1. Overview Board -->
-          <div v-show="activeMenu === 'overview'">
+          <!-- 1. Project Board -->
+          <div v-show="activeMenu === 'project-board'">
             <el-row :gutter="20">
-              <el-col :span="8">
-                <el-card shadow="hover" class="data-card clickable-card" @click="goToProjectsWithFilter('not_started')">
+              <el-col :span="6">
+                <el-card shadow="hover" :class="['data-card', 'clickable-card', { 'active-module': activeProjectModule === 'all' }]" @click="selectProjectModule('all')">
+                  <div class="card-icon" style="background:#EEF2FF;color:#4F46E5;"><el-icon><DataLine /></el-icon></div>
+                  <div class="card-info">
+                    <div class="label">所有项目</div>
+                    <div class="value">{{ dashboardStats.total }}</div>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :span="6">
+                <el-card shadow="hover" :class="['data-card', 'clickable-card', { 'active-module': activeProjectModule === 'not_started' }]" @click="selectProjectModule('not_started')">
                   <div class="card-icon" style="background:#FAECD8;color:#E6A23C;"><el-icon><FolderOpened /></el-icon></div>
                   <div class="card-info">
                     <div class="label">未开始的投票项目</div>
@@ -99,8 +98,8 @@
                   </div>
                 </el-card>
               </el-col>
-              <el-col :span="8">
-                <el-card shadow="hover" class="data-card clickable-card" @click="goToProjectsWithFilter('in_progress')">
+              <el-col :span="6">
+                <el-card shadow="hover" :class="['data-card', 'clickable-card', { 'active-module': activeProjectModule === 'in_progress' }]" @click="selectProjectModule('in_progress')">
                   <div class="card-icon" style="background:#E1F3D8;color:#67C23A;"><el-icon><VideoPlay /></el-icon></div>
                   <div class="card-info">
                     <div class="label">已开始的投票项目</div>
@@ -108,8 +107,8 @@
                   </div>
                 </el-card>
               </el-col>
-              <el-col :span="8">
-                <el-card shadow="hover" class="data-card clickable-card" @click="goToProjectsWithFilter('ended')">
+              <el-col :span="6">
+                <el-card shadow="hover" :class="['data-card', 'clickable-card', { 'active-module': activeProjectModule === 'ended' }]" @click="selectProjectModule('ended')">
                   <div class="card-icon" style="background:#D9ECFF;color:#409EFF;"><el-icon><DataLine /></el-icon></div>
                   <div class="card-info">
                     <div class="label">已结束的投票项目</div>
@@ -118,53 +117,127 @@
                 </el-card>
               </el-col>
             </el-row>
-          </div>
 
-          <!-- 2. Projects -->
-          <div v-show="activeMenu === 'projects'">
-            <!-- 将时间控制移到紧随 Context Selector 的位置，且只在 activeMenu==='projects' 且有选中项目的情况下展示 -->
-            <el-card shadow="hover" class="section-card" v-if="selectedAddr" style="margin-bottom: 20px;">
-              <template #header>
-                <div style="font-weight: bold;">时段控制与部署</div>
-              </template>
-              
-              <div v-if="!deployed">
-                <div v-if="message" class="alert" :class="messageOk ? 'alert-success' : 'alert-error'" style="margin-bottom:12px">
-                  {{ message }}
-                </div>
-                <div style="display: flex; gap: 16px; align-items: center;">
-                  <el-date-picker v-model="startTime" type="datetime" placeholder="开票时间" :disabled="submitting" value-format="YYYY-MM-DDTHH:mm:ss" />
-                  <span style="color:#909399">至</span>
-                  <el-date-picker v-model="endTime" type="datetime" placeholder="截止时间" :disabled="submitting" value-format="YYYY-MM-DDTHH:mm:ss" />
-                  <el-button type="primary" :disabled="submitting || !startTime || !endTime" @click="handleSaveVotingTime">
-                     {{ submitting ? '部署中...' : '正式部署以启动项目' }}
-                  </el-button>
-                </div>
-                <el-alert title="请注意：项目创建后需设定时间并点击「正式部署以启动项目」，才会在到达启动时间时开放投票。部署后不可修改时间。" type="warning" show-icon style="margin-top:12px;" />
-              </div>
-              
-              <div v-else style="display: flex; gap: 16px; align-items: center;">
-                 <el-alert title="项目已部署，当前正运行在区块链上。" type="success" show-icon :closable="false" style="flex: 1;" />
-                 <el-tag size="large" type="info" style="font-size: 14px;">
-                    <el-icon style="margin-right: 4px"><Clock /></el-icon> 开票：{{ startTime.replace('T', ' ') || '未设置' }}
-                 </el-tag>
-                 <span style="color:#909399">~</span>
-                 <el-tag size="large" type="info" style="font-size: 14px;">
-                    <el-icon style="margin-right: 4px"><Clock /></el-icon> 截止：{{ endTime.replace('T', ' ') || '未设置' }}
-                 </el-tag>
+            <el-card shadow="hover" class="context-card" style="margin-bottom: 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+                <span style="font-weight: 700;">按模块筛选项目</span>
+                <el-input
+                  v-model="globalSearchQuery"
+                  placeholder="搜索项目名称或合约地址..."
+                  style="max-width: 320px;"
+                  clearable
+                />
               </div>
             </el-card>
 
             <div style="margin-bottom:20px;">
               <AdminProjectSidebar
-                :elections="myElections"
+                :elections="paginatedProjects"
                 :selected-addr="selectedAddr"
                 :project-statuses="projectStatuses"
                 :project-times="projectTimes"
-                :search-query="globalSearchQuery"
+                search-query=""
                 @select="handleSelect"
               />
             </div>
+
+            <el-card shadow="hover" class="section-card" v-if="selectedAddr">
+              <template #header>
+                <div style="font-weight: bold; display: flex; justify-content: space-between; align-items: center;">
+                  <span>继续设置并启动项目</span>
+                  <el-tag :type="deployed ? 'success' : 'warning'" size="small">
+                    {{ deployed ? '已设置时间' : '未设置时间' }}
+                  </el-tag>
+                </div>
+              </template>
+
+              <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <el-tag v-if="selectedTitle" type="info" size="large">{{ selectedTitle }}</el-tag>
+                <span style="font-family: monospace; color: #6b7280; font-size: 12px;">{{ selectedAddr }}</span>
+              </div>
+
+              <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 14px;">
+                <el-date-picker
+                  v-model="startTime"
+                  type="datetime"
+                  placeholder="开票时间"
+                  :disabled="submitting || deployed"
+                  value-format="YYYY-MM-DDTHH:mm:ss"
+                />
+                <span style="color:#909399">至</span>
+                <el-date-picker
+                  v-model="endTime"
+                  type="datetime"
+                  placeholder="截止时间"
+                  :disabled="submitting || deployed"
+                  value-format="YYYY-MM-DDTHH:mm:ss"
+                />
+                <el-button
+                  type="primary"
+                  :disabled="submitting || deployed || !startTime || !endTime"
+                  @click="handleSaveVotingTime"
+                >
+                  {{ submitting ? '启动中...' : '设置时间并启动项目' }}
+                </el-button>
+              </div>
+
+              <el-alert
+                v-if="deployed"
+                title="该项目已完成时间设置并正式启动。"
+                type="success"
+                show-icon
+                :closable="false"
+                style="margin-top: 12px;"
+              />
+              <el-alert
+                v-else
+                title="即使中途退出创建流程，也可以在这里补设开始/结束时间并启动项目。"
+                type="warning"
+                show-icon
+                :closable="false"
+                style="margin-top: 12px;"
+              />
+            </el-card>
+
+            <div style="display: flex; justify-content: flex-end; margin-top: 12px;" v-if="filteredProjects.length > 5">
+              <el-pagination
+                v-model:current-page="projectPage"
+                :page-size="5"
+                layout="prev, pager, next, total"
+                :total="filteredProjects.length"
+              />
+            </div>
+          </div>
+
+          <!-- 2. Create Project -->
+          <div v-show="activeMenu === 'create-project'">
+            <el-card shadow="hover" class="section-card">
+              <template #header>
+                <div style="font-weight: bold;">创建新项目</div>
+              </template>
+              <div style="display: grid; gap: 14px; max-width: 680px;">
+                <el-input v-model="newTitle" placeholder="输入项目名称（例如：第十二届学生会主席投票）" clearable />
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <el-input v-model="newSbtImageCid" placeholder="输入项目 SBT 图片 CID（IPFS）" clearable />
+                  <label class="upload-chip" :class="{ disabled: sbtImageUploading }" title="上传图片到 IPFS 并自动填入 CID">
+                    <span v-if="sbtImageUploading">上传中...</span>
+                    <span v-else>上传图片</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      class="file-hidden"
+                      :disabled="sbtImageUploading"
+                      @change="handleUploadSbtImage"
+                    />
+                  </label>
+                </div>
+                <div>
+                  <el-button type="primary" :loading="creating" :disabled="creating || !newTitle.trim() || !newSbtImageCid.trim()" @click="handleCreate">
+                    {{ creating ? '创建中...' : '创建新项目' }}
+                  </el-button>
+                </div>
+              </div>
+            </el-card>
           </div>
 
           <!-- 3. Candidates -->
@@ -242,11 +315,11 @@ import {
 } from "../services/api.js";
 
 // Layout state
-const activeMenu = ref('overview');
+const activeMenu = ref('project-board');
 const activeMenuName = computed(() => {
   const map = {
-    overview: '概览看板',
-    projects: '项目管理',
+    'project-board': '管理项目',
+    'create-project': '创建新项目',
     candidates: '候选人管理',
     voters: '选票管理',
     logs: '交易与安全'
@@ -255,6 +328,10 @@ const activeMenuName = computed(() => {
 });
 
 function handleMenuSelect(index) {
+  if (index === "create-project") {
+    router.push('/admin/create/step1');
+    return;
+  }
   activeMenu.value = index;
 }
 
@@ -269,14 +346,12 @@ const voting = useVotingStore();
 
 const showCreateForm = ref(false);
 const globalSearchQuery = ref("");
-const statusFilter = ref("");
+const activeProjectModule = ref("all");
+const projectPage = ref(1);
 
-function goToProjectsWithFilter(filter) {
-  statusFilter.value = filter;
-  activeMenu.value = 'projects';
-  globalSearchQuery.value = "";
-  // 滚动到顶部
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+function selectProjectModule(module) {
+  activeProjectModule.value = module;
+  projectPage.value = 1;
 }
 
 // ==================== 项目与表单状态 ====================
@@ -288,6 +363,7 @@ const status = reactive({ started: false, ended: false, candidates: 0 });
 
 const newTitle = ref("");
 const newSbtImageCid = ref("");
+const sbtImageUploading = ref(false);
 const creating = ref(false);
 const globalMsg = ref("");
 const globalMsgOk = ref(true);
@@ -320,12 +396,11 @@ const avgGasUsed = computed(() => {
   return Math.round(total / valid.length);
 });
 
-// 我创建的项目
-const myElections = computed(() =>
-  voting.elections.filter(e => e.creator.toLowerCase() === wallet.address?.toLowerCase())
-);
+// 当前工厂合约下的所有子合约项目
+const factoryElections = computed(() => voting.elections || []);
 
 const dashboardStats = reactive({
+  total: 0,
   notStarted: 0,
   inProgress: 0,
   ended: 0
@@ -341,8 +416,8 @@ async function loadDashboardStats() {
   
   const now = Math.floor(Date.now() / 1000);
   
-  if (myElections.value && myElections.value.length > 0) {
-    for (const e of myElections.value) {
+  if (factoryElections.value && factoryElections.value.length > 0) {
+    for (const e of factoryElections.value) {
       try {
         const contract = getReadContract(e.address);
         const [startTsRaw, endTsRaw] = await Promise.all([
@@ -376,14 +451,42 @@ async function loadDashboardStats() {
     }
   }
   
+  dashboardStats.total = factoryElections.value.length;
   dashboardStats.notStarted = notStarted;
   dashboardStats.inProgress = inProgress;
   dashboardStats.ended = ended;
 }
 
-watch(myElections, () => {
+watch(factoryElections, () => {
   loadDashboardStats();
 }, { immediate: true });
+
+const filteredProjects = computed(() => {
+  const normalizedQuery = globalSearchQuery.value.trim().toLowerCase();
+
+  let list = factoryElections.value.filter((e) => {
+    const status = projectStatuses[e.address] || "loading";
+    if (activeProjectModule.value === "all") return true;
+    return status === activeProjectModule.value;
+  });
+
+  if (!normalizedQuery) return list;
+
+  return list.filter((e) => {
+    const title = (e.title || "").toLowerCase();
+    const addr = (e.address || "").toLowerCase();
+    return title.includes(normalizedQuery) || addr.includes(normalizedQuery);
+  });
+});
+
+const paginatedProjects = computed(() => {
+  const start = (projectPage.value - 1) * 5;
+  return filteredProjects.value.slice(start, start + 5);
+});
+
+watch([activeProjectModule, globalSearchQuery], () => {
+  projectPage.value = 1;
+});
 
 function toDatetimeLocal(seconds) {
   if (!seconds) return "";
@@ -503,6 +606,27 @@ async function handleCreate() {
     globalMsgOk.value = false;
   } finally {
     creating.value = false;
+  }
+}
+
+async function handleUploadSbtImage(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  sbtImageUploading.value = true;
+  globalMsg.value = "";
+
+  try {
+    const result = await uploadToIPFS(file, { purpose: "image" });
+    newSbtImageCid.value = result.cid;
+    globalMsg.value = "项目图片已上传到 IPFS，CID 已自动填入。";
+    globalMsgOk.value = true;
+  } catch (e) {
+    globalMsg.value = `项目图片上传失败：${e.response?.data?.detail || e.message}`;
+    globalMsgOk.value = false;
+  } finally {
+    sbtImageUploading.value = false;
+    event.target.value = "";
   }
 }
 
@@ -768,7 +892,18 @@ onMounted(async () => {
   await voting.loadElections();
   
   if (route.query.menu && route.query.addr) {
-    activeMenu.value = route.query.menu;
+    const menu = String(route.query.menu);
+    if (menu === "overview") {
+      activeMenu.value = "project-board";
+    } else if (menu === "projects") {
+      activeMenu.value = "project-board";
+    } else if (menu === "create-project") {
+      router.replace({ query: {} });
+      router.push('/admin/create/step1');
+      return;
+    } else {
+      activeMenu.value = menu;
+    }
     handleSelect(route.query.addr);
     router.replace({ query: {} }); // remove query after init
   }
@@ -795,6 +930,11 @@ watch(() => wallet.address, async () => {
 .clickable-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+}
+
+.active-module {
+  border: 1px solid #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
 }
 
 .admin-sidebar {
@@ -887,5 +1027,30 @@ watch(() => wallet.address, async () => {
 .section-card {
   margin-bottom: 24px;
   border-radius: 8px;
+}
+
+.upload-chip {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #dbeafe;
+  border: 1px solid #93c5fd;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.upload-chip.disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.file-hidden {
+  display: none;
 }
 </style>

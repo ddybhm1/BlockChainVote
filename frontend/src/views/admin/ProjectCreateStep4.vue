@@ -87,7 +87,7 @@ async function handleStart() {
     
     setTimeout(() => {
       voting.selectElection(contractAddr.value);
-      router.push({ name: 'Admin', query: { menu: 'projects', addr: contractAddr.value } });
+      router.push({ name: 'Admin', query: { menu: 'project-board', addr: contractAddr.value } });
     }, 1500);
   } catch (e) {
     wizardMsg.value = "启动失败：" + (e.response?.data?.detail || e.message);

@@ -71,7 +71,7 @@ npm run dev -- --host --strictPort
 
 默认地址：
 
-- `http://localhost:5173`
+- `http://localhost:5174`
 
 ## 常用命令
 
