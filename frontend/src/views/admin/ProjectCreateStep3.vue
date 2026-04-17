@@ -3,7 +3,7 @@
     <el-header class="admin-header">
       <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
         <el-breadcrumb separator="/">
-          <el-breadcrumb-item :to="{ path: '/admin' }">管理面板</el-breadcrumb-item>
+          <el-breadcrumb-item :to="{ path: baseRoot }">{{ isCreatorFlow ? '自治投票站' : '管理面板' }}</el-breadcrumb-item>
           <el-breadcrumb-item>新建投票项目 - 选民</el-breadcrumb-item>
         </el-breadcrumb>
       </div>
@@ -32,7 +32,7 @@
           />
 
           <div style="display: flex; justify-content: space-between; margin-top: 30px;">
-            <el-button @click="router.push('/admin')">跳出向导 (取消)</el-button>
+            <el-button @click="router.push(baseRoot)">跳出向导 (取消)</el-button>
             <div style="display: flex; gap: 12px;">
               <el-button type="primary" @click="goToStep4">下一步（已完成或跳过）</el-button>
             </div>
@@ -55,6 +55,8 @@ const router = useRouter();
 const contractAddr = computed(() => route.params.address);
 const startTime = computed(() => route.query.start);
 const endTime = computed(() => route.query.end);
+const isCreatorFlow = computed(() => route.path.startsWith('/creator/'));
+const baseRoot = computed(() => (isCreatorFlow.value ? '/creator' : '/admin'));
 
 const submitting = ref(false);
 const wizardMsg = ref("");
@@ -63,7 +65,7 @@ const voterResetKey = ref(0);
 const voterStats = reactive({ total: -1, claimed: 0 });
 
 function goToStep4() {
-  router.push(`/admin/create/${contractAddr.value}/step4?start=${encodeURIComponent(startTime.value)}&end=${encodeURIComponent(endTime.value)}`);
+  router.push(`${baseRoot.value}/create/${contractAddr.value}/step4?start=${encodeURIComponent(startTime.value)}&end=${encodeURIComponent(endTime.value)}`);
 }
 
 async function loadVoterStats() {

@@ -15,9 +15,9 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import JWT_EXPIRE_HOURS, JWT_SECRET_KEY
+from config import ADMIN_PRIVATE_KEY, JWT_EXPIRE_HOURS, JWT_SECRET_KEY
 from database import get_db
-from models import ClaimedTicket, Election, ElectionVoter, SecurityLog, Voter
+from models import ClaimedTicket, Election, ElectionVoter, SecurityLog, VerifiedCreator, WalletBlacklist, Voter
 from services.blockchain import (
     authorize_voter_on_chain,
     fetch_factory_elections,
@@ -237,6 +237,8 @@ class TicketActionResponse(BaseModel):
 class DashboardElectionItem(BaseModel):
     election_address: str
     title: str
+    creator: str = ""
+    creator_verified: bool = False
     start_time: int
     end_time: int
     phase: str
@@ -325,6 +327,14 @@ async def _build_my_elections_items(student_id: str, db: AsyncSession) -> List[D
 
     mappings = mappings_result.all()
 
+    hidden_rows = (
+        await db.scalars(select(Election.contract_address).where(func.upper(Election.visibility) == "HIDDEN"))
+    ).all()
+    hidden_addresses = {addr.lower() for addr in hidden_rows if addr}
+
+    verified_rows = (await db.scalars(select(VerifiedCreator.wallet_address))).all()
+    verified_wallets = {addr.lower() for addr in verified_rows if addr}
+
     items: List[DashboardElectionItem] = []
     for _, election, ticket in mappings:
         if not election:
@@ -332,6 +342,8 @@ async def _build_my_elections_items(student_id: str, db: AsyncSession) -> List[D
 
         normalized_address = election.contract_address.lower()
         if normalized_address not in factory_addresses:
+            continue
+        if normalized_address in hidden_addresses:
             continue
 
         factory_item = factory_map.get(normalized_address, {})
@@ -343,6 +355,8 @@ async def _build_my_elections_items(student_id: str, db: AsyncSession) -> List[D
             DashboardElectionItem(
                 election_address=normalized_address,
                 title=title,
+                creator=(factory_item.get("creator") or "").lower(),
+                creator_verified=((factory_item.get("creator") or "").lower() in verified_wallets),
                 start_time=start_time,
                 end_time=end_time,
                 phase=_phase_from_times(start_time, end_time),
@@ -453,8 +467,46 @@ async def _authorize_ticket(
 
     auth_logger.info(f"[AuthService] IP: {client_ip} - 学号 {student_id} 验证通过，准备进行链上授权。")
 
+    tx_hash = ""
     try:
-        tx_hash = await authorize_voter_on_chain(wallet_address, election_address)
+        w3 = get_web3()
+        contract = get_contract(w3, election_address)
+        checksum_wallet = w3.to_checksum_address(wallet_address)
+
+        # 若已在链上白名单，则无需重复交易，直接发放票据即可。
+        already_authorized = bool(contract.functions.isAuthorized(checksum_wallet).call())
+        if already_authorized:
+            tx_hash = "already_authorized"
+        else:
+            election_admin = contract.functions.admin().call().lower()
+            backend_signer = w3.eth.account.from_key(ADMIN_PRIVATE_KEY).address.lower()
+
+            # 新版合约支持 platformServer（操作员模式）；旧版合约回退 admin 检查。
+            platform_server = ""
+            try:
+                platform_server = contract.functions.platformServer().call().lower()
+            except Exception:
+                platform_server = ""
+
+            can_backend_sign = False
+            if platform_server:
+                can_backend_sign = platform_server == backend_signer
+            else:
+                can_backend_sign = election_admin == backend_signer
+
+            # 非后端签名地址管理/托管的项目，无法由后端代签 authorizeVoter。
+            if not can_backend_sign:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "该项目由独立创建者管理，当前后端无权代签领票授权。"
+                        "请项目创建者先在其钱包侧完成该地址授权后再领票。"
+                    ),
+                )
+
+            tx_hash = await authorize_voter_on_chain(wallet_address, election_address)
+    except HTTPException:
+        raise
     except Exception as exc:
         masked_address = f"{wallet_address[:6]}...{wallet_address[-4:]}"
         auth_logger.error(f"[Web3Service] 学号 {student_id} 授权地址 {masked_address} 失败：{exc}")

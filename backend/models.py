@@ -11,7 +11,29 @@ class Election(Base):
     title = Column(String(255), nullable=True, default="")
     start_time = Column(BigInteger, nullable=False)
     end_time = Column(BigInteger, nullable=False)
+    visibility = Column(String(16), nullable=False, default="VISIBLE", index=True)
     # 可扩展：项目名称、描述等
+
+
+class VerifiedCreator(Base):
+    """官方蓝V认证钱包列表"""
+    __tablename__ = "verified_creators"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    wallet_address = Column(String(42), unique=True, nullable=False, index=True)
+    note = Column(String(255), nullable=True, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class WalletBlacklist(Base):
+    """恶意钱包封禁列表"""
+    __tablename__ = "wallet_blacklist"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    wallet_address = Column(String(42), unique=True, nullable=False, index=True)
+    reason = Column(String(255), nullable=True, default="")
+    active = Column(Boolean, default=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 class Voter(Base):
     """选民表 - 仅存储身份校验信息，绝不存储钱包地址"""

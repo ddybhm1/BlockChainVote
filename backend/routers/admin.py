@@ -9,17 +9,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form, Header
 from pydantic import BaseModel, field_validator
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
 
-from config import ADMIN_PRIVATE_KEY, ADMIN_WALLET_ADDRESS, SEPOLIA_RPC, SEPOLIA_RPC_URL
+from config import ADMIN_PRIVATE_KEY, ADMIN_WALLET_ADDRESS, FACTORY_ADDRESS, SEPOLIA_RPC, SEPOLIA_RPC_URL
 from database import get_db
-from models import Voter, ClaimedTicket, ElectionVoter, TransactionLog, SecurityLog, Election
-from services.blockchain import get_web3, get_contract
+from models import Voter, ClaimedTicket, ElectionVoter, TransactionLog, SecurityLog, Election, VerifiedCreator, WalletBlacklist
+from services.blockchain import fetch_factory_elections, get_web3, get_contract
 from services.ipfs import pin_file_to_ipfs
 
 router = APIRouter(prefix="/api/admin", tags=["管理"])
@@ -106,6 +106,82 @@ class LogSecurityRequest(BaseModel):
     election_address: Optional[str] = None
     details: str
     severity: str = "warning"
+
+
+class SetProjectVisibilityRequest(BaseModel):
+    election_address: str
+    visibility: str  # VISIBLE | HIDDEN
+
+
+class VerifyWalletRequest(BaseModel):
+    wallet_address: str
+    note: Optional[str] = ""
+
+
+class BlacklistWalletRequest(BaseModel):
+    wallet_address: str
+    reason: Optional[str] = ""
+
+
+def _normalize_wallet(value: str, field_name: str = "钱包地址") -> str:
+    if not re.match(r"^0x[0-9a-fA-F]{40}$", value or ""):
+        raise HTTPException(status_code=400, detail=f"{field_name}格式错误")
+    return value.lower()
+
+
+def _require_admin_wallet(
+    x_wallet_address: Optional[str] = Header(default=None, alias="X-Wallet-Address"),
+) -> str:
+    configured_admin = (ADMIN_WALLET_ADDRESS or "").strip().lower()
+    if not configured_admin:
+        raise HTTPException(status_code=500, detail="管理员钱包地址未配置")
+    if not x_wallet_address:
+        raise HTTPException(status_code=401, detail="缺少管理员钱包标识")
+
+    requester = _normalize_wallet(x_wallet_address, "请求钱包地址")
+    if requester != configured_admin:
+        raise HTTPException(status_code=403, detail="无权操作：当前钱包不是平台管理员钱包")
+    return requester
+
+
+FACTORY_GOV_ABI = [
+    {
+        "inputs": [],
+        "name": "owner",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "createFee",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "backendServerAddress",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "paused",
+        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
+
+def _get_factory_contract_for_read():
+    if not FACTORY_ADDRESS:
+        raise HTTPException(status_code=500, detail="工厂合约地址未配置")
+    w3 = get_web3()
+    factory = w3.eth.contract(address=Web3.to_checksum_address(FACTORY_ADDRESS), abi=FACTORY_GOV_ABI)
+    return w3, factory
 
 
 @router.post("/deploy-election", response_model=DeployElectionResponse)
@@ -593,3 +669,225 @@ async def debug_data(db: AsyncSession = Depends(get_db)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"调试数据获取失败: {str(e)}")
+
+
+@router.get("/governance/state")
+async def governance_state(_admin_wallet: str = Depends(_require_admin_wallet)):
+    w3, factory = _get_factory_contract_for_read()
+    owner = factory.functions.owner().call().lower()
+    create_fee = int(factory.functions.createFee().call())
+    backend_server = factory.functions.backendServerAddress().call().lower()
+    paused = bool(factory.functions.paused().call())
+    treasury_wei = int(w3.eth.get_balance(Web3.to_checksum_address(FACTORY_ADDRESS)))
+    return {
+        "owner": owner,
+        "backend_server_address": backend_server,
+        "create_fee_wei": create_fee,
+        "create_fee_eth": float(w3.from_wei(create_fee, "ether")),
+        "paused": paused,
+        "treasury_wei": str(treasury_wei),
+        "treasury_eth": float(w3.from_wei(treasury_wei, "ether")),
+    }
+
+
+@router.get("/moderation/projects")
+async def moderation_projects(
+    db: AsyncSession = Depends(get_db),
+    _admin_wallet: str = Depends(_require_admin_wallet),
+):
+    catalog = fetch_factory_elections()
+    election_rows = (await db.scalars(select(Election))).all()
+    visibility_map = {row.contract_address.lower(): (row.visibility or "VISIBLE").upper() for row in election_rows if row.contract_address}
+    verified_rows = (await db.scalars(select(VerifiedCreator.wallet_address))).all()
+    verified_wallets = {addr.lower() for addr in verified_rows if addr}
+
+    items = []
+    for item in catalog:
+        addr = (item.get("address") or "").lower()
+        creator = (item.get("creator") or "").lower()
+        items.append(
+            {
+                "address": addr,
+                "title": (item.get("title") or "").strip(),
+                "creator": creator,
+                "creator_verified": creator in verified_wallets,
+                "created_at": int(item.get("created_at") or 0),
+                "start_time": int(item.get("start_time") or 0),
+                "end_time": int(item.get("end_time") or 0),
+                "visibility": visibility_map.get(addr, "VISIBLE"),
+            }
+        )
+
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/moderation/projects/visibility")
+async def moderation_set_project_visibility(
+    req: SetProjectVisibilityRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin_wallet: str = Depends(_require_admin_wallet),
+):
+    election_address = _normalize_wallet(req.election_address, "投票项目地址")
+    visibility = (req.visibility or "").strip().upper()
+    if visibility not in {"VISIBLE", "HIDDEN"}:
+        raise HTTPException(status_code=400, detail="visibility 仅支持 VISIBLE 或 HIDDEN")
+
+    election = await db.scalar(select(Election).where(func.lower(Election.contract_address) == election_address))
+    if election:
+        election.visibility = visibility
+    else:
+        db.add(Election(contract_address=election_address, title="", start_time=0, end_time=0, visibility=visibility))
+    await db.commit()
+    return {"success": True, "election_address": election_address, "visibility": visibility}
+
+
+@router.get("/reputation/verified-wallets")
+async def list_verified_wallets(
+    db: AsyncSession = Depends(get_db),
+    _admin_wallet: str = Depends(_require_admin_wallet),
+):
+    rows = (await db.scalars(select(VerifiedCreator).order_by(desc(VerifiedCreator.created_at)))).all()
+    return {
+        "items": [
+            {
+                "wallet_address": r.wallet_address,
+                "note": r.note or "",
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.post("/reputation/verified-wallets")
+async def add_verified_wallet(
+    req: VerifyWalletRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin_wallet: str = Depends(_require_admin_wallet),
+):
+    wallet_address = _normalize_wallet(req.wallet_address)
+    row = await db.scalar(select(VerifiedCreator).where(VerifiedCreator.wallet_address == wallet_address))
+    if row:
+        row.note = req.note or row.note
+    else:
+        db.add(VerifiedCreator(wallet_address=wallet_address, note=req.note or ""))
+    await db.commit()
+    return {"success": True, "wallet_address": wallet_address}
+
+
+@router.delete("/reputation/verified-wallets/{wallet_address}")
+async def remove_verified_wallet(
+    wallet_address: str,
+    db: AsyncSession = Depends(get_db),
+    _admin_wallet: str = Depends(_require_admin_wallet),
+):
+    normalized = _normalize_wallet(wallet_address)
+    row = await db.scalar(select(VerifiedCreator).where(VerifiedCreator.wallet_address == normalized))
+    if row:
+        await db.delete(row)
+        await db.commit()
+    return {"success": True, "wallet_address": normalized}
+
+
+@router.get("/blacklist")
+async def list_blacklist(
+    db: AsyncSession = Depends(get_db),
+    _admin_wallet: str = Depends(_require_admin_wallet),
+):
+    rows = (await db.scalars(select(WalletBlacklist).order_by(desc(WalletBlacklist.created_at)))).all()
+    return {
+        "items": [
+            {
+                "wallet_address": r.wallet_address,
+                "reason": r.reason or "",
+                "active": bool(r.active),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.post("/blacklist")
+async def add_blacklist(
+    req: BlacklistWalletRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin_wallet: str = Depends(_require_admin_wallet),
+):
+    wallet_address = _normalize_wallet(req.wallet_address)
+    row = await db.scalar(select(WalletBlacklist).where(WalletBlacklist.wallet_address == wallet_address))
+    if row:
+        row.active = True
+        row.reason = req.reason or row.reason
+    else:
+        db.add(WalletBlacklist(wallet_address=wallet_address, reason=req.reason or "", active=True))
+    await db.commit()
+    return {"success": True, "wallet_address": wallet_address}
+
+
+@router.delete("/blacklist/{wallet_address}")
+async def remove_blacklist(
+    wallet_address: str,
+    db: AsyncSession = Depends(get_db),
+    _admin_wallet: str = Depends(_require_admin_wallet),
+):
+    normalized = _normalize_wallet(wallet_address)
+    row = await db.scalar(select(WalletBlacklist).where(WalletBlacklist.wallet_address == normalized))
+    if row:
+        row.active = False
+        await db.commit()
+    return {"success": True, "wallet_address": normalized}
+
+
+@router.get("/blacklist/check")
+async def check_blacklist(wallet_address: str, db: AsyncSession = Depends(get_db)):
+    normalized = _normalize_wallet(wallet_address)
+    row = await db.scalar(
+        select(WalletBlacklist).where(WalletBlacklist.wallet_address == normalized, WalletBlacklist.active == True)
+    )
+    if not row:
+        return {"blacklisted": False}
+    return {"blacklisted": True, "reason": row.reason or "该钱包地址已被平台封禁"}
+
+
+@router.get("/analytics/overview")
+async def analytics_overview(
+    db: AsyncSession = Depends(get_db),
+    _admin_wallet: str = Depends(_require_admin_wallet),
+):
+    catalog = fetch_factory_elections()
+    total_elections = len(catalog)
+
+    total_votes_cast = 0
+    w3 = get_web3()
+    for item in catalog:
+        addr = item.get("address")
+        if not addr:
+            continue
+        try:
+            contract = get_contract(w3, addr)
+            status = contract.functions.getVotingStatus().call()
+            total_votes_cast += int(status[4])
+        except Exception:
+            continue
+
+    total_revenue_wei = int(w3.eth.get_balance(Web3.to_checksum_address(FACTORY_ADDRESS))) if FACTORY_ADDRESS else 0
+
+    recent = sorted(catalog, key=lambda x: int(x.get("created_at") or 0), reverse=True)[:50]
+    activity = [
+        {
+            "created_at": int(item.get("created_at") or 0),
+            "creator": (item.get("creator") or "").lower(),
+            "title": item.get("title") or "未命名项目",
+            "address": (item.get("address") or "").lower(),
+        }
+        for item in recent
+    ]
+
+    return {
+        "total_elections": total_elections,
+        "total_votes_cast": total_votes_cast,
+        "total_revenue_wei": str(total_revenue_wei),
+        "total_revenue_eth": float(w3.from_wei(total_revenue_wei, "ether")) if FACTORY_ADDRESS else 0.0,
+        "activity": activity,
+    }

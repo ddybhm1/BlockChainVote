@@ -3,11 +3,23 @@
  */
 export const FACTORY_ABI = [
   "function owner() view returns (address)",
-  "function createElection(string _title, string _sbtImageCid) returns (address)",
+  "function backendServerAddress() view returns (address)",
+  "function createFee() view returns (uint256)",
+  "function paused() view returns (bool)",
+  "function createElection(string _title, string _sbtImageCid) payable returns (address)",
+  "function setCreateFee(uint256 _newFee)",
+  "function setBackendServerAddress(address _newAddress)",
+  "function setPaused(bool _paused)",
+  "function withdrawTreasury(address _to, uint256 _amount)",
+  "function hasCreatorTitle(address _creator, string _title) view returns (bool)",
   "function getElectionCount() view returns (uint256)",
   "function getAllElections() view returns (address[] addrs, string[] titles, address[] creators, uint256[] createdAts)",
   "function isElection(address) view returns (bool)",
   "event ElectionCreated(uint256 indexed index, address indexed electionAddr, string title, address indexed creator)",
+  "event CreateFeeUpdated(uint256 oldFee, uint256 newFee)",
+  "event BackendServerAddressUpdated(address indexed oldAddress, address indexed newAddress)",
+  "event TreasuryWithdrawn(address indexed to, uint256 amount)",
+  "event FactoryPaused(bool paused)",
 ];
 
 /**
@@ -15,6 +27,7 @@ export const FACTORY_ABI = [
  */
 export const ELECTION_ABI = [
   "function admin() view returns (address)",
+  "function platformServer() view returns (address)",
   "function candidateCount() view returns (uint256)",
   "function votingStarted() view returns (bool)",
   "function votingEnded() view returns (bool)",

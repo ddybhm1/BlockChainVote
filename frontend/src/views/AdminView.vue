@@ -4,7 +4,7 @@
     <el-aside width="250px" class="admin-sidebar">
       <div class="sidebar-logo">
         <el-icon :size="24" color="#fff" style="margin-right: 8px"><Monitor /></el-icon>
-        <span style="color:#fff;font-weight:600;font-size:16px;">电子投票控制台</span>
+        <span style="color:#fff;font-weight:600;font-size:16px;">{{ isCreatorMode ? '自治投票站' : '电子投票控制台' }}</span>
       </div>
       <el-menu
         :default-active="activeMenu"
@@ -30,7 +30,7 @@
           <el-icon><Tickets /></el-icon>
           <span>选票管理</span>
         </el-menu-item>
-        <el-menu-item index="logs">
+        <el-menu-item v-if="!isCreatorMode" index="logs">
           <el-icon><List /></el-icon>
           <span>交易与安全</span>
         </el-menu-item>
@@ -42,7 +42,7 @@
       <el-header class="admin-header">
         <div class="header-left" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
           <el-breadcrumb separator="/">
-            <el-breadcrumb-item>管理面板</el-breadcrumb-item>
+            <el-breadcrumb-item>{{ isCreatorMode ? '自治投票站' : '管理面板' }}</el-breadcrumb-item>
             <el-breadcrumb-item>{{ activeMenuName }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
@@ -50,8 +50,8 @@
 
       <!-- Main Content -->
       <el-main class="admin-main">
-        <div v-if="!wallet.address || !wallet.isFactoryOwner" class="alert alert-error">
-          <el-empty description="管理员中心仅通过钱包地址认证，请先通过顶部右上角的 Wallet Connect 连接具有管理员权限的钱包" />
+        <div v-if="accessDenied" class="alert alert-error">
+          <el-empty :description="accessDeniedText" />
         </div>
         <div v-else>
           <!-- Global Message -->
@@ -84,7 +84,7 @@
                 <el-card shadow="hover" :class="['data-card', 'clickable-card', { 'active-module': activeProjectModule === 'all' }]" @click="selectProjectModule('all')">
                   <div class="card-icon" style="background:#EEF2FF;color:#4F46E5;"><el-icon><DataLine /></el-icon></div>
                   <div class="card-info">
-                    <div class="label">所有项目</div>
+                    <div class="label">{{ isCreatorMode ? '我的项目' : '所有项目' }}</div>
                     <div class="value">{{ dashboardStats.total }}</div>
                   </div>
                 </el-card>
@@ -216,6 +216,12 @@
                 <div style="font-weight: bold;">创建新项目</div>
               </template>
               <div style="display: grid; gap: 14px; max-width: 680px;">
+                <el-alert
+                  :title="factoryPaused ? '平台当前已暂停创建新项目，请稍后再试。' : `当前开站费：${createFeeText}（不含 Gas）`"
+                  :type="factoryPaused ? 'warning' : 'info'"
+                  show-icon
+                  :closable="false"
+                />
                 <el-input v-model="newTitle" placeholder="输入项目名称（例如：第十二届学生会主席投票）" clearable />
                 <div style="display: flex; align-items: center; gap: 10px;">
                   <el-input v-model="newSbtImageCid" placeholder="输入项目 SBT 图片 CID（IPFS）" clearable />
@@ -232,7 +238,7 @@
                   </label>
                 </div>
                 <div>
-                  <el-button type="primary" :loading="creating" :disabled="creating || !newTitle.trim() || !newSbtImageCid.trim()" @click="handleCreate">
+                  <el-button type="primary" :loading="creating" :disabled="creating || factoryPaused || !newTitle.trim() || !newSbtImageCid.trim()" @click="handleCreate">
                     {{ creating ? '创建中...' : '创建新项目' }}
                   </el-button>
                 </div>
@@ -269,7 +275,7 @@
           </div>
 
           <!-- 5. Logs Console -->
-          <div v-show="activeMenu === 'logs' && selectedAddr">
+          <div v-if="!isCreatorMode" v-show="activeMenu === 'logs' && selectedAddr">
             <div class="console-wrapper">
               <AdminLogsPanel
                 :transaction-logs="transactionLogs"
@@ -293,6 +299,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ethers } from "ethers";
+import { useRoute, useRouter } from "vue-router";
 import { Monitor, DataLine, FolderOpened, UserFilled, Tickets, List, VideoPlay, User, Cpu, WarnTriangleFilled } from '@element-plus/icons-vue';
 
 import AdminLogsPanel from "../components/admin/AdminLogsPanel.vue";
@@ -306,7 +313,6 @@ import {
   getTransactionLogs,
   getSecurityLogs,
   logTransaction,
-  setVotingTime,
   uploadToIPFS,
   syncElectionToBackend,
   getVotersCount,
@@ -316,6 +322,9 @@ import {
 
 // Layout state
 const activeMenu = ref('project-board');
+const route = useRoute();
+const router = useRouter();
+const isCreatorMode = computed(() => route.path?.startsWith('/creator'));
 const activeMenuName = computed(() => {
   const map = {
     'project-board': '管理项目',
@@ -324,12 +333,13 @@ const activeMenuName = computed(() => {
     voters: '选票管理',
     logs: '交易与安全'
   };
-  return map[activeMenu.value];
+  if (isCreatorMode.value && activeMenu.value === 'logs') return '项目治理';
+  return map[activeMenu.value] || '管理项目';
 });
 
 function handleMenuSelect(index) {
   if (index === "create-project") {
-    router.push('/admin/create/step1');
+    router.push(isCreatorMode.value ? '/creator/create/step1' : '/admin/create/step1');
     return;
   }
   activeMenu.value = index;
@@ -364,6 +374,8 @@ const status = reactive({ started: false, ended: false, candidates: 0 });
 const newTitle = ref("");
 const newSbtImageCid = ref("");
 const sbtImageUploading = ref(false);
+const createFeeWei = ref(0n);
+const factoryPaused = ref(false);
 const creating = ref(false);
 const globalMsg = ref("");
 const globalMsgOk = ref(true);
@@ -398,6 +410,18 @@ const avgGasUsed = computed(() => {
 
 // 当前工厂合约下的所有子合约项目
 const factoryElections = computed(() => voting.elections || []);
+const managedElections = computed(() => {
+  if (!isCreatorMode.value) return factoryElections.value;
+  const me = (wallet.address || '').toLowerCase();
+  return factoryElections.value.filter((e) => (e.creator || '').toLowerCase() === me);
+});
+const createFeeText = computed(() => `${ethers.formatEther(createFeeWei.value)} ETH`);
+const accessDenied = computed(() => !wallet.address || (!isCreatorMode.value && !wallet.isFactoryOwner));
+const accessDeniedText = computed(() => {
+  if (!wallet.address) return "请先通过顶部 Wallet Connect 连接钱包后再进入控制台";
+  if (!isCreatorMode.value) return "管理员中心仅通过钱包地址认证，请连接具有管理员权限的钱包";
+  return "请先连接钱包";
+});
 
 const dashboardStats = reactive({
   total: 0,
@@ -416,8 +440,8 @@ async function loadDashboardStats() {
   
   const now = Math.floor(Date.now() / 1000);
   
-  if (factoryElections.value && factoryElections.value.length > 0) {
-    for (const e of factoryElections.value) {
+  if (managedElections.value && managedElections.value.length > 0) {
+    for (const e of managedElections.value) {
       try {
         const contract = getReadContract(e.address);
         const [startTsRaw, endTsRaw] = await Promise.all([
@@ -451,20 +475,20 @@ async function loadDashboardStats() {
     }
   }
   
-  dashboardStats.total = factoryElections.value.length;
+  dashboardStats.total = managedElections.value.length;
   dashboardStats.notStarted = notStarted;
   dashboardStats.inProgress = inProgress;
   dashboardStats.ended = ended;
 }
 
-watch(factoryElections, () => {
+watch([factoryElections, () => wallet.address, isCreatorMode], () => {
   loadDashboardStats();
 }, { immediate: true });
 
 const filteredProjects = computed(() => {
   const normalizedQuery = globalSearchQuery.value.trim().toLowerCase();
 
-  let list = factoryElections.value.filter((e) => {
+  let list = managedElections.value.filter((e) => {
     const status = projectStatuses[e.address] || "loading";
     if (activeProjectModule.value === "all") return true;
     return status === activeProjectModule.value;
@@ -536,15 +560,29 @@ async function handleSaveVotingTime() {
       return;
     }
 
-    const res = await setVotingTime(selectedAddr.value, startTs, endTs);
+    const targetAddr = selectedAddr.value;
+    const targetTitle = selectedTitle.value || (voting.elections.find((e) => e.address === targetAddr)?.title || "");
+
+    const writeContract = await getWriteContract(targetAddr);
+    const tx = await writeContract.startVoting(startTs, endTs);
+    const receipt = await tx.wait();
+    if (receipt.status !== 1) {
+      throw new Error("链上设置投票时间失败");
+    }
+
+    await syncElectionToBackend(targetAddr, targetTitle, startTs, endTs);
+
     deployed.value = true;
     deployedStartTs.value = startTs;
     deployedEndTs.value = endTs;
     startTime.value = toDatetimeLocal(startTs);
     endTime.value = toDatetimeLocal(endTs);
-    message.value = '部署成功，区块链将自动控制投票窗口。TxHash: ' + (res.tx_hash || '');
+    message.value = '部署成功，区块链将自动控制投票窗口。TxHash: ' + (tx.hash || '');
     messageOk.value = true;
-    await voting.selectElection(selectedAddr.value);
+    await voting.loadElections();
+    await loadDashboardStats();
+    await loadData();
+    await voting.selectElection(targetAddr);
   } catch (e) {
     message.value = '保存失败：' + (e.response?.data?.detail || e.message);
     messageOk.value = false;
@@ -560,7 +598,10 @@ async function handleCreate() {
   globalMsg.value = "";
   try {
     const factory = await voting.getFactoryWriteContract();
-    const tx = await factory.createElection(newTitle.value.trim(), newSbtImageCid.value.trim());
+    const fee = await factory.createFee();
+    const isPaused = await factory.paused();
+    if (isPaused) throw new Error("平台当前暂停了新项目创建");
+    const tx = await factory.createElection(newTitle.value.trim(), newSbtImageCid.value.trim(), { value: fee });
     globalMsg.value = "交易已发送，等待链上确认...";
     globalMsgOk.value = true;
     const receipt = await tx.wait();
@@ -640,8 +681,23 @@ async function handleSelect(addr) {
   await checkAdmin();
   await loadData();
   await loadVoterStats();
-  await loadTransactionLogs();
-  await loadSecurityLogs();
+  if (!isCreatorMode.value) {
+    await loadTransactionLogs();
+    await loadSecurityLogs();
+  }
+}
+
+async function loadFactoryPolicy() {
+  try {
+    const factory = voting.getFactoryReadContract();
+    const [fee, paused] = await Promise.all([factory.createFee(), factory.paused()]);
+    createFeeWei.value = fee;
+    factoryPaused.value = paused;
+  } catch (e) {
+    console.warn('读取工厂费率/暂停状态失败', e);
+    createFeeWei.value = 0n;
+    factoryPaused.value = false;
+  }
 }
 
 async function checkAdmin() {
@@ -883,13 +939,10 @@ async function loadSecurityLogs() {
   }
 }
 
-import { useRoute, useRouter } from "vue-router";
-const route = useRoute();
-const router = useRouter();
-
 // ==================== 生命周期 ====================
 onMounted(async () => {
   await voting.loadElections();
+  await loadFactoryPolicy();
   
   if (route.query.menu && route.query.addr) {
     const menu = String(route.query.menu);
@@ -899,7 +952,7 @@ onMounted(async () => {
       activeMenu.value = "project-board";
     } else if (menu === "create-project") {
       router.replace({ query: {} });
-      router.push('/admin/create/step1');
+      router.push(isCreatorMode.value ? '/creator/create/step1' : '/admin/create/step1');
       return;
     } else {
       activeMenu.value = menu;
@@ -911,6 +964,7 @@ onMounted(async () => {
 
 watch(() => wallet.address, async () => {
   await voting.loadElections();
+  await loadFactoryPolicy();
   if (selectedAddr.value) {
     await checkAdmin();
   }

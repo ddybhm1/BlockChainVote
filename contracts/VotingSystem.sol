@@ -9,6 +9,7 @@ contract VotingSystem {
     using Base64 for bytes;
 
     address public admin;
+    address public platformServer;
     string public electionName; // 新增：投票项目名称
     string public sbtImageCid;  // 新增：项目 SBT 图片 CID
     
@@ -63,6 +64,11 @@ contract VotingSystem {
         _;
     }
 
+    modifier onlyAdminOrServer() {
+        require(msg.sender == admin || msg.sender == platformServer, "Not authorized to issue tickets");
+        _;
+    }
+
     modifier duringVoting() {
         require(votingStarted && !votingEnded, "Voting not active");
         require(block.timestamp >= votingStartTime, "Voting not started yet");
@@ -75,9 +81,12 @@ contract VotingSystem {
         _;
     }
 
-    // 构造函数新增 _electionName 和 _sbtImageCid
-    constructor(address _admin, string memory _electionName, string memory _sbtImageCid) {
+    // 构造函数新增 _platformServer，实现独立创建者 + 平台后端双授权
+    constructor(address _admin, address _platformServer, string memory _electionName, string memory _sbtImageCid) {
+        require(_admin != address(0), "Zero admin");
+        require(_platformServer != address(0), "Zero server");
         admin = _admin;
+        platformServer = _platformServer;
         electionName = _electionName;
         sbtImageCid = _sbtImageCid;
         votingStartTime = 0;
@@ -131,7 +140,7 @@ contract VotingSystem {
         }
     }
 
-    function authorizeVoter(address _voter) external onlyAdmin {
+    function authorizeVoter(address _voter) external onlyAdminOrServer {
         require(_voter != address(0), "Zero address");
         require(!isAuthorized[_voter], "Already authorized");
         isAuthorized[_voter] = true;
@@ -139,7 +148,7 @@ contract VotingSystem {
         emit VoterAuthorized(_voter);
     }
 
-    function authorizeVotersBatch(address[] calldata _voters) external onlyAdmin {
+    function authorizeVotersBatch(address[] calldata _voters) external onlyAdminOrServer {
         for (uint256 i = 0; i < _voters.length; i++) {
             if (_voters[i] != address(0) && !isAuthorized[_voters[i]]) {
                 isAuthorized[_voters[i]] = true;

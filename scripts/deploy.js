@@ -5,9 +5,11 @@ async function main() {
 
   const [deployer] = await hre.ethers.getSigners();
   console.log(`部署账户: ${deployer.address}`);
+  const backendServerAddress = process.env.BACKEND_SERVER_ADDRESS || process.env.ADMIN_WALLET_ADDRESS || deployer.address;
+  console.log(`后端代签地址: ${backendServerAddress}`);
 
   const ElectionFactory = await hre.ethers.getContractFactory("ElectionFactory");
-  const factory = await ElectionFactory.deploy({
+  const factory = await ElectionFactory.deploy(backendServerAddress, {
     maxFeePerGas: hre.ethers.parseUnits("50", "gwei"),
     maxPriorityFeePerGas: hre.ethers.parseUnits("50", "gwei")
   });
@@ -20,7 +22,7 @@ async function main() {
   // 为了自动认证 Factory 部署的子合约，我们在主脚本里先单独部署一个 VotingSystem 用来向 Etherscan 上传源码
   console.log("\n正在部署占位子合约 (仅用于 Etherscan 源码自动验证匹配)...");
   const VotingSystem = await hre.ethers.getContractFactory("VotingSystem");
-  const dummySystem = await VotingSystem.deploy(deployer.address, "Dummy", "QMDummyImageCid", {
+  const dummySystem = await VotingSystem.deploy(deployer.address, backendServerAddress, "Dummy", "QMDummyImageCid", {
     maxFeePerGas: hre.ethers.parseUnits("50", "gwei"),
     maxPriorityFeePerGas: hre.ethers.parseUnits("50", "gwei")
   });
@@ -35,7 +37,7 @@ async function main() {
   try {
     await hre.run("verify:verify", {
       address: address,
-      constructorArguments: [],
+      constructorArguments: [backendServerAddress],
     });
   } catch (error) {
     console.error("Factory 验证失败 (可能已被验证):", error.message);
@@ -45,7 +47,7 @@ async function main() {
   try {
     await hre.run("verify:verify", {
       address: dummyAddress,
-      constructorArguments: [deployer.address, "Dummy"],
+      constructorArguments: [deployer.address, backendServerAddress, "Dummy", "QMDummyImageCid"],
     });
     console.log("占位子合约验证成功！在此之后工厂合约生成的任何子合约都可以被 Etherscan 自动识别出源码了。");
   } catch (error) {

@@ -2,8 +2,16 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { ethers } from "ethers";
 import { FACTORY_ABI, FACTORY_ADDRESS } from "../services/contract.js";
+import { checkBlacklistWallet, setAuthToken, setStoredStudentId } from "../services/api.js";
 
 export const useWalletStore = defineStore("wallet", () => {
+    function clearStudentSessionForWalletChange() {
+      setAuthToken("");
+      setStoredStudentId("");
+      window.localStorage.removeItem("userToken");
+      window.localStorage.removeItem("walletAddress");
+    }
+
   const address = ref("");
   const loading = ref(false);
   const chainId = ref(null);
@@ -44,7 +52,25 @@ export const useWalletStore = defineStore("wallet", () => {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const accounts = await provider.send("eth_requestAccounts", []);
       if (accounts.length > 0) {
-        address.value = ethers.getAddress(accounts[0]);
+        const previousAddress = address.value;
+        const nextAddress = ethers.getAddress(accounts[0]);
+        const blacklist = await checkBlacklistWallet(nextAddress);
+        if (blacklist?.blacklisted) {
+          alert(blacklist.reason || "该钱包地址已被平台封禁");
+          disconnect();
+          return;
+        }
+
+        if (previousAddress && previousAddress.toLowerCase() !== nextAddress.toLowerCase()) {
+          clearStudentSessionForWalletChange();
+          alert("检测到钱包地址切换，已退出当前登录状态。");
+          address.value = nextAddress;
+          await checkFactoryOwner();
+          window.location.reload();
+          return;
+        }
+
+        address.value = nextAddress;
       }
 
       const network = await provider.getNetwork();
@@ -94,7 +120,29 @@ export const useWalletStore = defineStore("wallet", () => {
   if (window.ethereum) {
     window.ethereum.on("accountsChanged", async (accounts) => {
       if (accounts.length > 0) {
-        address.value = ethers.getAddress(accounts[0]);
+        const previousAddress = address.value;
+        const nextAddress = ethers.getAddress(accounts[0]);
+        try {
+          const blacklist = await checkBlacklistWallet(nextAddress);
+          if (blacklist?.blacklisted) {
+            alert(blacklist.reason || "该钱包地址已被平台封禁");
+            disconnect();
+            return;
+          }
+        } catch (err) {
+          console.warn("黑名单检查失败，保留当前连接", err);
+        }
+
+        if (previousAddress && previousAddress.toLowerCase() !== nextAddress.toLowerCase()) {
+          clearStudentSessionForWalletChange();
+          alert("检测到钱包地址切换，已退出当前登录状态。");
+          address.value = nextAddress;
+          await checkFactoryOwner();
+          window.location.reload();
+          return;
+        }
+
+        address.value = nextAddress;
         // 账户切换时重新检查 owner 权限
         await checkFactoryOwner();
       } else {

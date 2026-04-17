@@ -55,11 +55,16 @@ def _ensure_elections_columns(sync_conn) -> None:
         sync_conn.execute(
             text("ALTER TABLE elections ADD COLUMN title VARCHAR(255) NULL")
         )
+    if "visibility" not in columns:
+        sync_conn.execute(
+            text("ALTER TABLE elections ADD COLUMN visibility VARCHAR(16) NOT NULL DEFAULT 'VISIBLE'")
+        )
 
     sync_conn.execute(
         text(
             "UPDATE elections "
-            "SET title = COALESCE(title, '')"
+            "SET title = COALESCE(title, ''), "
+            "visibility = COALESCE(visibility, 'VISIBLE')"
         )
     )
 

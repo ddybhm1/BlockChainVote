@@ -40,6 +40,11 @@ const routes = [
   {
     path: "/admin",
     name: "Admin",
+    component: () => import("../views/AdminGovernanceView.vue"),
+  },
+  {
+    path: "/creator",
+    name: "CreatorStation",
     component: () => import("../views/AdminView.vue"),
   },
   {
@@ -60,6 +65,26 @@ const routes = [
   {
     path: "/admin/create/:address/step4",
     name: "ProjectCreateStep4",
+    component: () => import("../views/admin/ProjectCreateStep4.vue"),
+  },
+  {
+    path: "/creator/create/step1",
+    name: "CreatorProjectCreateStep1",
+    component: () => import("../views/admin/ProjectCreateStep1.vue"),
+  },
+  {
+    path: "/creator/create/:address/step2",
+    name: "CreatorProjectCreateStep2",
+    component: () => import("../views/admin/ProjectCreateStep2.vue"),
+  },
+  {
+    path: "/creator/create/:address/step3",
+    name: "CreatorProjectCreateStep3",
+    component: () => import("../views/admin/ProjectCreateStep3.vue"),
+  },
+  {
+    path: "/creator/create/:address/step4",
+    name: "CreatorProjectCreateStep4",
     component: () => import("../views/admin/ProjectCreateStep4.vue"),
   },
 ];

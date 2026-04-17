@@ -8,10 +8,19 @@
     <template #header>
       <div class="card-header">
         <div class="header-left">
-          <h3 class="card-title" :title="item.title">{{ displayTitle(item.title) }}</h3>
-          <el-tag :type="badgeInfo.type" effect="light" size="small" style="margin-left: 8px;">
-            {{ badgeInfo.label }}
-          </el-tag>
+          <div class="title-block">
+            <div class="title-row">
+              <h3 class="card-title" :title="item.title">{{ displayTitle(item.title) }}</h3>
+              <el-tag :type="badgeInfo.type" effect="light" size="small" style="margin-left: 8px;">
+                {{ badgeInfo.label }}
+              </el-tag>
+            </div>
+            <div class="creator-row" :title="item.creator || 'Unknown'">
+              <span class="creator-label">Created by</span>
+              <span class="creator-value">{{ shortCreator(item.creator) }}</span>
+              <span v-if="item.creator_verified" class="verified-badge" title="官方认证创建者">蓝V认证</span>
+            </div>
+          </div>
         </div>
         <el-button
           link
@@ -96,6 +105,11 @@ const badgeInfo = computed(() => unifiedBadge(props.item));
 
 function shortAddress(address) {
   if (!address) return "-";
+  return `${address.slice(0, 8)}...${address.slice(-6)}`;
+}
+
+function shortCreator(address) {
+  if (!address) return "Unknown";
   return `${address.slice(0, 8)}...${address.slice(-6)}`;
 }
 
@@ -190,6 +204,17 @@ function getParticipationStatus(item) {
 .header-left {
   flex: 1;
   display: flex;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.title-block {
+  min-width: 0;
+  width: 100%;
+}
+
+.title-row {
+  display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -211,6 +236,43 @@ function getParticipationStatus(item) {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.creator-row {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eef6ff;
+  border: 1px solid #bfdbfe;
+  max-width: 100%;
+}
+
+.creator-label {
+  font-size: 12px;
+  color: #1e40af;
+  font-weight: 700;
+}
+
+.creator-value {
+  font-size: 12px;
+  color: #0f172a;
+  font-family: monospace;
+  font-weight: 700;
+}
+
+.verified-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, #1677ff, #0d47a1);
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.35);
 }
 
 .info-grid {

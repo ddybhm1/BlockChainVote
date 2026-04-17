@@ -5,16 +5,17 @@
         ⛓️ 电子投票上链存证与安全管理系统
       </router-link>
 
-      <div v-if="!isAdminPage" class="nav-links">
+      <div v-if="!isConsolePage" class="nav-links">
         <router-link :to="homeTarget" class="nav-link">首页</router-link>
         <router-link v-if="auth.isAuthenticated" to="/dashboard" class="nav-link">我的投票</router-link>
+        <router-link v-if="!isResultsPage && !auth.isAuthenticated" to="/creator" class="nav-link">创建投票项目</router-link>
         <router-link to="/results" class="nav-link">实时结果</router-link>
       </div>
       <div v-else class="nav-links" style="justify-content: flex-end;">
         <router-link to="/results" class="nav-link">实时结果</router-link>
       </div>
 
-      <div v-if="auth.isAuthenticated && !isAdminPage" class="nav-account">
+      <div v-if="auth.isAuthenticated && !isConsolePage" class="nav-account">
         <details class="account-menu">
           <summary class="account-trigger">学号 {{ auth.studentId }}</summary>
           <div class="account-dropdown">
@@ -31,7 +32,7 @@
       </div>
 
       <button
-        v-if="!auth.isAuthenticated && !isAdminPage"
+        v-if="!auth.isAuthenticated && !isConsolePage"
         type="button"
         class="nav-login-btn"
         @click="showLoginDialog = true"
@@ -44,7 +45,7 @@
       </div>
 
       <StudentLoginDialog
-        v-if="!isAdminPage"
+        v-if="!isConsolePage"
         v-model="showLoginDialog"
         redirect-path="/dashboard"
         source-label="Global Navigation"
@@ -93,7 +94,10 @@ const showLoginDialog = ref(false);
 const showSystemDialog = ref(false);
 
 const isAdminPage = computed(() => route.path?.startsWith("/admin") || false);
-const showWalletConnect = computed(() => isAdminPage.value || auth.isAuthenticated);
+const isCreatorPage = computed(() => route.path?.startsWith("/creator") || false);
+const isResultsPage = computed(() => route.path?.startsWith("/results") || false);
+const isConsolePage = computed(() => isAdminPage.value || isCreatorPage.value);
+const showWalletConnect = computed(() => isConsolePage.value || auth.isAuthenticated);
 const homeTarget = computed(() => (auth.isAuthenticated ? { name: "Home", query: { preview: "1" } } : { name: "Home" }));
 
 function handleLogout() {

@@ -3,7 +3,7 @@
     <el-header class="admin-header">
       <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
         <el-breadcrumb separator="/">
-          <el-breadcrumb-item :to="{ path: '/admin' }">管理面板</el-breadcrumb-item>
+          <el-breadcrumb-item :to="{ path: baseRoot }">{{ isCreatorFlow ? '自治投票站' : '管理面板' }}</el-breadcrumb-item>
           <el-breadcrumb-item>新建投票项目 - 启动</el-breadcrumb-item>
         </el-breadcrumb>
       </div>
@@ -36,7 +36,7 @@
           <div v-if="wizardMsg" :class="['alert', wizardMsgOk ? 'alert-success' : 'alert-error']" style="margin-top: 16px;">{{ wizardMsg }}</div>
 
           <div style="display: flex; justify-content: space-between; margin-top: 30px;">
-            <el-button @click="router.push('/admin')">暂不启动 (返回)</el-button>
+            <el-button @click="router.push(baseRoot)">暂不启动 (返回)</el-button>
             <el-button type="success" :loading="submitting" @click="handleStart">启动投票</el-button>
           </div>
         </div>
@@ -48,7 +48,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { setVotingTime } from '../../services/api.js';
+import { syncElectionToBackend } from '../../services/api.js';
 import { useVotingStore } from '../../stores/voting.js';
 
 const route = useRoute();
@@ -58,6 +58,8 @@ const voting = useVotingStore();
 const contractAddr = computed(() => route.params.address);
 const startTime = computed(() => route.query.start);
 const endTime = computed(() => route.query.end);
+const isCreatorFlow = computed(() => route.path.startsWith('/creator/'));
+const baseRoot = computed(() => (isCreatorFlow.value ? '/creator' : '/admin'));
 
 const submitting = ref(false);
 const wizardMsg = ref("");
@@ -78,16 +80,24 @@ async function handleStart() {
     const startTs = Math.floor(new Date(startTime.value).getTime() / 1000);
     const endTs = Math.floor(new Date(endTime.value).getTime() / 1000);
 
-    await setVotingTime(contractAddr.value, startTs, endTs);
+    const contract = await voting.getElectionWriteContract(contractAddr.value);
+    const tx = await contract.startVoting(startTs, endTs);
+    const receipt = await tx.wait();
+    if (receipt.status !== 1) {
+      throw new Error('链上启动投票失败');
+    }
+
+    const electionTitle = (voting.elections.find((e) => e.address === contractAddr.value)?.title || '').trim();
+    await syncElectionToBackend(contractAddr.value, electionTitle, startTs, endTs);
     
-    wizardMsg.value = "✓ 投票已正式启动！项目现已生效。";
+    wizardMsg.value = `✓ 投票已正式启动！项目现已生效。TxHash: ${tx.hash}`;
     wizardMsgOk.value = true;
 
     await voting.loadElections();
     
     setTimeout(() => {
       voting.selectElection(contractAddr.value);
-      router.push({ name: 'Admin', query: { menu: 'project-board', addr: contractAddr.value } });
+      router.push({ path: baseRoot.value, query: { menu: 'project-board', addr: contractAddr.value } });
     }, 1500);
   } catch (e) {
     wizardMsg.value = "启动失败：" + (e.response?.data?.detail || e.message);

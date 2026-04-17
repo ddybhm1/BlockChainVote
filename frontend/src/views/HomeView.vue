@@ -12,12 +12,14 @@
           <button class="btn btn-primary" type="button" @click="router.push('/dashboard')">
             进入我的投票
           </button>
+          <router-link to="/creator" class="btn btn-secondary">创建自己的投票项目</router-link>
           <router-link to="/results" class="btn btn-secondary">查看公开计票结果</router-link>
         </template>
         <template v-else>
           <button class="btn btn-primary" type="button" @click="handleProtectedEntry">
             学号登录开始投票
           </button>
+          <router-link to="/creator" class="btn btn-secondary">钱包登录创建投票项目</router-link>
           <router-link to="/results" class="btn btn-secondary">查看公开计票结果</router-link>
         </template>
       </div>
@@ -42,6 +44,14 @@
         <div class="feature-icon">📊</div>
         <h3>链上透明计票</h3>
         <p>选票直接上链，任何人都能在大屏或区块浏览器中验证票数变化，计票过程公开透明。</p>
+      </div>
+      <div class="feature card">
+        <div class="feature-icon">🛠️</div>
+        <h3>创建自己的投票项目</h3>
+        <p>无需学号密码，直接通过钱包连接进入自治投票站，支付开站费后即可链上创建独立子合约项目。</p>
+        <div style="margin-top: 12px;">
+          <router-link to="/creator" class="btn btn-secondary">进入自治投票站</router-link>
+        </div>
       </div>
     </div>
 

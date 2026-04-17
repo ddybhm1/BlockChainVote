@@ -3,7 +3,7 @@
     <el-header class="admin-header">
       <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
         <el-breadcrumb separator="/">
-          <el-breadcrumb-item :to="{ path: '/admin' }">管理面板</el-breadcrumb-item>
+          <el-breadcrumb-item :to="{ path: baseRoot }">{{ isCreatorFlow ? '自治投票站' : '管理面板' }}</el-breadcrumb-item>
           <el-breadcrumb-item>新建投票项目</el-breadcrumb-item>
         </el-breadcrumb>
       </div>
@@ -20,10 +20,12 @@
 
         <div style="max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;">
           <el-alert title="此步骤将创建一个新的智能合约，需要钱包签名并消耗 Gas。" type="info" show-icon />
+          <el-alert :title="factoryPaused ? '平台当前暂停了项目创建，请稍后再试。' : `当前开站费：${createFeeText}（不含 Gas）`" :type="factoryPaused ? 'warning' : 'info'" show-icon />
           
           <div>
             <label style="display: block; margin-bottom: 8px; font-weight: 600;">项目名称 *</label>
-            <el-input v-model="wizardData.projectName" placeholder="例如：学生会换届投票 2026" />
+            <el-input v-model="wizardData.projectName" placeholder="例如：学生会换届投票 2026" @input="validateTitle" />
+            <div v-if="titleError" style="color: #ef4444; font-size: 12px; margin-top: 4px;">{{ titleError }}</div>
           </div>
 
           <div>
@@ -54,8 +56,8 @@
           <div v-if="wizardMsg" :class="['alert', wizardMsgOk ? 'alert-success' : 'alert-error']" style="margin-top:16px;">{{ wizardMsg }}</div>
           
           <div style="display: flex; justify-content: space-between; margin-top: 30px;">
-            <el-button @click="router.push('/admin')">取消返回</el-button>
-            <el-button type="primary" :loading="wizardStepSubmitting" :disabled="!wizardStep1Valid()" @click="handleDeploy">部署项目</el-button>
+            <el-button @click="router.push(baseRoot)">取消返回</el-button>
+            <el-button type="primary" :loading="wizardStepSubmitting" :disabled="factoryPaused || !wizardStep1Valid() || !!titleError" @click="handleDeploy">部署项目</el-button>
           </div>
         </div>
       </el-card>
@@ -64,13 +66,19 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref, reactive, watch } from 'vue';
+import { ethers } from 'ethers';
+import { useRoute, useRouter } from 'vue-router';
 import { useVotingStore } from '../../stores/voting.js';
+import { useWalletStore } from '../../stores/wallet.js';
 import { uploadToIPFS, syncElectionToBackend } from '../../services/api.js';
 
+const route = useRoute();
 const router = useRouter();
 const voting = useVotingStore();
+const wallet = useWalletStore();
+const isCreatorFlow = computed(() => route.path.startsWith('/creator/'));
+const baseRoot = computed(() => (isCreatorFlow.value ? '/creator' : '/admin'));
 
 const wizardData = reactive({
   projectName: "",
@@ -83,6 +91,65 @@ const wizardData = reactive({
 const wizardStepSubmitting = ref(false);
 const wizardMsg = ref("");
 const wizardMsgOk = ref(false);
+const createFeeWei = ref(0n);
+const factoryPaused = ref(false);
+const createFeeText = computed(() => `${ethers.formatEther(createFeeWei.value)} ETH`);
+const userExistingTitles = ref([]);
+const titleError = ref("");
+
+function normalizeTitle(value) {
+  return (value || "").trim().toLowerCase();
+}
+
+async function loadUserExistingTitles() {
+  if (!wallet.address) {
+    userExistingTitles.value = [];
+    return;
+  }
+
+  await voting.loadElections();
+  const me = wallet.address.toLowerCase();
+  const titles = (voting.elections || [])
+    .filter((item) => (item.creator || "").toLowerCase() === me)
+    .map((item) => normalizeTitle(item.title))
+    .filter(Boolean);
+
+  userExistingTitles.value = Array.from(new Set(titles));
+  validateTitle();
+}
+
+function validateTitle() {
+  const normalized = normalizeTitle(wizardData.projectName);
+  if (!normalized) {
+    titleError.value = "";
+    return;
+  }
+  if (userExistingTitles.value.includes(normalized)) {
+    titleError.value = "您已经创建过同名的投票项目啦！请换个名字。";
+    return;
+  }
+  titleError.value = "";
+}
+
+async function loadFactoryPolicy() {
+  try {
+    const factory = voting.getFactoryReadContract();
+    const [fee, paused] = await Promise.all([factory.createFee(), factory.paused()]);
+    createFeeWei.value = fee;
+    factoryPaused.value = paused;
+  } catch (e) {
+    console.warn('读取工厂费率失败', e);
+    createFeeWei.value = 0n;
+    factoryPaused.value = false;
+  }
+}
+
+loadFactoryPolicy();
+loadUserExistingTitles();
+
+watch(() => wallet.address, () => {
+  loadUserExistingTitles();
+});
 
 async function handleUploadImage(event) {
   const file = event.target.files?.[0];
@@ -106,12 +173,20 @@ function wizardStep1Valid() {
          wizardData.sbtImageCid.trim() &&
          wizardData.startTime &&
          wizardData.endTime &&
-         new Date(wizardData.endTime) > new Date(wizardData.startTime);
+         new Date(wizardData.endTime) > new Date(wizardData.startTime) &&
+         !titleError.value;
 }
 
 async function handleDeploy() {
   if (!wizardStep1Valid()) {
     wizardMsg.value = "请检查所有输入：项目名称、SBT 图片、开始时间和结束时间";
+    wizardMsgOk.value = false;
+    return;
+  }
+
+  validateTitle();
+  if (titleError.value) {
+    wizardMsg.value = titleError.value;
     wizardMsgOk.value = false;
     return;
   }
@@ -122,9 +197,15 @@ async function handleDeploy() {
 
   try {
     const factory = await voting.getFactoryWriteContract();
+    const fee = await factory.createFee();
+    const paused = await factory.paused();
+    if (paused) throw new Error("平台当前暂停了项目创建");
+    const duplicated = await factory.hasCreatorTitle(wallet.address, wizardData.projectName.trim());
+    if (duplicated) throw new Error("您已经创建过同名的投票项目啦！请换个名字。");
     const tx = await factory.createElection(
       wizardData.projectName.trim(),
-      wizardData.sbtImageCid.trim()
+      wizardData.sbtImageCid.trim(),
+      { value: fee }
     );
     
     wizardMsg.value = "交易已发送，等待链上确认...";
@@ -158,7 +239,7 @@ async function handleDeploy() {
     await voting.loadElections();
     
     setTimeout(() => {
-      router.push(`/admin/create/${newAddr}/step2?start=${encodeURIComponent(wizardData.startTime)}&end=${encodeURIComponent(wizardData.endTime)}`);
+      router.push(`${baseRoot.value}/create/${newAddr}/step2?start=${encodeURIComponent(wizardData.startTime)}&end=${encodeURIComponent(wizardData.endTime)}`);
     }, 1000);
   } catch (e) {
     wizardMsg.value = "部署失败：" + (e.reason || e.message);

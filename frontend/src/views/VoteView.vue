@@ -56,6 +56,15 @@
               </div>
             </el-card>
           </el-col>
+          <el-col :xs="24" :sm="12" :md="6">
+            <el-card class="stat-card" shadow="hover" @click="goToCreatorStation">
+              <div class="stat-icon" style="background: #ecfccb; color: #16a34a;">🛠️</div>
+              <div class="stat-content">
+                <div class="stat-label">创建投票项目</div>
+                <div class="stat-value" style="font-size: 18px;">自治投票站</div>
+              </div>
+            </el-card>
+          </el-col>
         </el-row>
       </div>
 
@@ -209,6 +218,10 @@ function applyUnifiedSearch(items, keyword) {
 
 function jumpByBucket(bucket) {
   router.push({ name: "Dashboard", query: { ...route.query, bucket } });
+}
+
+function goToCreatorStation() {
+  router.push({ name: "CreatorStation" });
 }
 
 const filteredDashboardItems = computed(() => {

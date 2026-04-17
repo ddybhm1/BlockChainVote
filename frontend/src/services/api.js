@@ -214,4 +214,100 @@ export async function getSecurityLogs(electionAddress) {
   return res.data;
 }
 
+export async function getGovernanceState(operatorWalletAddress = '') {
+  const res = await api.get('/admin/governance/state', {
+    headers: buildAdminWalletHeaders(operatorWalletAddress),
+  });
+  return res.data;
+}
+
+export async function getModerationProjects(operatorWalletAddress = '') {
+  const res = await api.get('/admin/moderation/projects', {
+    headers: buildAdminWalletHeaders(operatorWalletAddress),
+  });
+  return res.data;
+}
+
+function buildAdminWalletHeaders(walletAddress) {
+  const normalized = (walletAddress || '').trim();
+  if (!normalized) return {};
+  return {
+    'X-Wallet-Address': normalized,
+  };
+}
+
+export async function setModerationProjectVisibility(electionAddress, visibility, operatorWalletAddress = '') {
+  const res = await api.post('/admin/moderation/projects/visibility', {
+    election_address: electionAddress,
+    visibility,
+  }, {
+    headers: buildAdminWalletHeaders(operatorWalletAddress),
+  });
+  return res.data;
+}
+
+export async function getVerifiedWallets(operatorWalletAddress = '') {
+  const res = await api.get('/admin/reputation/verified-wallets', {
+    headers: buildAdminWalletHeaders(operatorWalletAddress),
+  });
+  return res.data;
+}
+
+export async function addVerifiedWallet(targetWalletAddress, note = '', operatorWalletAddress = '') {
+  const res = await api.post('/admin/reputation/verified-wallets', {
+    wallet_address: targetWalletAddress,
+    note,
+  }, {
+    headers: buildAdminWalletHeaders(operatorWalletAddress),
+  });
+  return res.data;
+}
+
+export async function removeVerifiedWallet(targetWalletAddress, operatorWalletAddress = '') {
+  const res = await api.delete(`/admin/reputation/verified-wallets/${targetWalletAddress}`, {
+    headers: buildAdminWalletHeaders(operatorWalletAddress),
+  });
+  return res.data;
+}
+
+export async function getBlacklistWallets(operatorWalletAddress = '') {
+  const res = await api.get('/admin/blacklist', {
+    headers: buildAdminWalletHeaders(operatorWalletAddress),
+  });
+  return res.data;
+}
+
+export async function addBlacklistWallet(targetWalletAddress, reason = '', operatorWalletAddress = '') {
+  const res = await api.post('/admin/blacklist', {
+    wallet_address: targetWalletAddress,
+    reason,
+  }, {
+    headers: buildAdminWalletHeaders(operatorWalletAddress),
+  });
+  return res.data;
+}
+
+export async function removeBlacklistWallet(targetWalletAddress, operatorWalletAddress = '') {
+  const res = await api.delete(`/admin/blacklist/${targetWalletAddress}`, {
+    headers: buildAdminWalletHeaders(operatorWalletAddress),
+  });
+  return res.data;
+}
+
+export async function checkBlacklistWallet(walletAddress) {
+  const res = await api.get('/admin/blacklist/check', {
+    params: {
+      wallet_address: walletAddress,
+    },
+  });
+  return res.data;
+}
+
+export async function getAnalyticsOverview(operatorWalletAddress = '') {
+  const res = await api.get('/admin/analytics/overview', {
+    headers: buildAdminWalletHeaders(operatorWalletAddress),
+  });
+  return res.data;
+}
+
 export default api;

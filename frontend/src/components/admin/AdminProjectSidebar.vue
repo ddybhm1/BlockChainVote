@@ -19,7 +19,14 @@
           style="padding: 16px; border: 1px solid #E4E7ED; border-radius: 8px; cursor: pointer; transition: all 0.2s;"
         >
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-            <div class="el-title" style="font-size: 16px; font-weight: bold; color: #303133;">{{ election.title }}</div>
+            <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+              <div class="el-title" style="font-size: 16px; font-weight: bold; color: #303133;">{{ election.title }}</div>
+              <div class="creator-row" :title="election.creator || 'Unknown'">
+                <span class="creator-label">Created by</span>
+                <span class="creator-value">{{ shortCreator(election.creator) }}</span>
+                <span v-if="election.creator_verified" class="verified-badge" title="官方认证创建者">蓝V认证</span>
+              </div>
+            </div>
             <el-tag :type="getElectionType(election.status)" size="small">
               {{ getElectionStatusText(election.status) }}
             </el-tag>
@@ -90,6 +97,11 @@ function getElectionType(status) {
   if (status === 'ended') return 'danger';
   return 'info';
 }
+
+function shortCreator(address) {
+  if (!address) return "Unknown";
+  return `${address.slice(0, 8)}...${address.slice(-6)}`;
+}
 </script>
 
 <style scoped>
@@ -147,6 +159,42 @@ function getElectionType(status) {
 
 .el-addr {
   font-family: monospace;
+}
+
+.creator-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  max-width: fit-content;
+}
+
+.creator-label {
+  font-size: 12px;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.creator-value {
+  font-size: 12px;
+  color: #0f172a;
+  font-family: monospace;
+  font-weight: 700;
+}
+
+.verified-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, #1677ff, #0d47a1);
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.35);
 }
 
 @media (max-width: 700px) {
